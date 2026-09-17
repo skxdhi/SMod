@@ -45,4 +45,4 @@ def load_assets():
 
 images, audio = load_assets()
 
-print("E")
+print("You found the easter egg")

@@ -1,4 +1,5 @@
 import math
+import random
 import sys
 from copy import deepcopy
 
@@ -12,7 +13,9 @@ mover cell on the list
 """
 
 chunks = {
-    "rotator": ["cw rotator", "ccw rotator"]
+    "rotator": ["cw rotator", "ccw rotator", "180 rotator"],
+    "gear": ["cw gear", "ccw gear"],
+    "generator": ["cw generator", "ccw generator"],
 }
 
 def to_vec(direction):
@@ -21,6 +24,10 @@ def to_vec(direction):
         1: Vector(0, 1),
         2: Vector(-1, 0),
         3: Vector(0, -1),
+        0.5: Vector(1, -1),
+        1.5: Vector(1, 1),
+        2.5: Vector(-1, 1),
+        3.5: Vector(-1, -1),
     }[direction]
 
 def to_dir(vector):
@@ -121,12 +128,15 @@ class Grid:
                             cell.updated = True
 
     def update_cells(self):
+        self.subtick("thawer")
         self.subtick("freezer")
         self.subtick("generator", 0)
         self.subtick("generator", 2)
         self.subtick("generator", 1)
         self.subtick("generator", 3)
+        self.subtick("gear")
         self.subtick("rotator")
+        self.subtick("redirector")
         self.subtick("mover", 0)
         self.subtick("mover", 2)
         self.subtick("mover", 1)
@@ -139,14 +149,32 @@ class Grid:
             l.append((x+v.x, y+v.y, self[x+v.x, y+v.y]))
         return l
 
+    def get_surrounding(self, x, y):
+        l = {}
+        for i in range(8):
+            i /= 2
+            v = to_vec(i)
+            l[i] = (x+v.x, y+v.y, self[x+v.x, y+v.y])
+        return l
+
     def freeze_cell(self, x, y):
         if self[x, y] is not None:
+            if self[x, y].effects.thawed: return
             self[x, y].effects.frozen = True
+
+    def thaw_cell(self, x, y):
+        if self[x, y] is not None:
+            self[x, y].effects.thawed = True
+            self[x, y].effects.frozen = False
 
     def rotate_cell(self, x, y, amt):
         if self[x, y] is not None:
             self[x, y].direction += amt
             self[x, y].direction %= 4
+
+    def redirect_cell(self, x, y, direction):
+        if self[x, y] is not None:
+            self[x, y].direction = direction
 
     def eat_cell(self, x, y, tx, ty):
         self.eaten.append((self[x, y], (tx, ty)))
@@ -247,6 +275,7 @@ class Grid:
             new_dir = to_dir(direction)
             cell.direction = (cell.direction + new_dir - old_dir) % 4
         ddir = to_dir(direction)
+        side = to_side(cell.direction, ddir)
         front_cell = self[nx, ny]
         lastpos = flags["lastpos"]
         if lastpos == (None, None):
@@ -255,7 +284,19 @@ class Grid:
         success = True
 
         if cell.name == "slide":
-            if ddir % 2 != cell.direction % 2:
+            if side % 2 != 0:
+                flags["force"] = 0
+        if cell.name == "two directional":
+            if side not in [0, 1]:
+                flags["force"] = 0
+        if cell.name == "three directional":
+            if side == 2:
+                flags["force"] = 0
+        if cell.name == "random push":
+            if random.random() < 0.5:
+                flags["force"] = 0
+        if cell.name == "one directional":
+            if side != 0:
                 flags["force"] = 0
         if cell.name == "wall":
             flags["force"] = 0
@@ -293,26 +334,76 @@ class Grid:
         rotation = {
             "cw rotator": 1,
             "ccw rotator": -1,
+            "180 rotator": 2,
         }[cell.name]
         for i, j, c in self.get_neighbors(x, y):
             self.rotate_cell(i, j, rotation)
 
     def DoGenerator(self, x, y, cell):
+        front_outputs = {
+            "generator": 0,
+            "cw generator": 1,
+            "ccw generator": -1,
+        }
+        front_output = front_outputs.get(cell.name, 0)
         bx, by, j, copy = self.step_backward(x, y, to_vec(cell.direction))
-        fx, fy, k, _ = self.step_forward(x, y, to_vec(cell.direction))
+        fx, fy, k, _ = self.step_forward(x, y, to_vec((cell.direction + front_output)%4))
         if copy is None: return
-        self.push_cell(fx, fy, to_vec(cell.direction), {"replacecell": copy})
+        copy.direction += front_output
+        self.push_cell(fx, fy, to_vec((cell.direction + front_output)%4), {"replacecell": copy})
+
+    def DoRedirector(self, x, y, cell):
+        for i, j, c in self.get_neighbors(x, y):
+            self.redirect_cell(i, j, cell.direction)
+
+    def DoThawer(self, x, y, cell):
+        for vx, vy, vcell in self.get_neighbors(x, y):
+            self.thaw_cell(vx, vy)
 
     def DoFreezer(self, x, y, cell):
         for vx, vy, vcell in self.get_neighbors(x, y):
             self.freeze_cell(vx, vy)
+
+    def do_basic_gear(self, gear_x, gear_y, rotation):
+        neighbors = self.get_surrounding(gear_x, gear_y)
+        old_states = neighbors.copy()
+        gears = ["cw gear", "ccw gear"]
+
+        for nx, ny, _ in old_states.values():
+            if self[nx, ny] is not None and self[nx, ny].name in gears:
+                return
+
+        self.rotate_cell(gear_x, gear_y, rotation)
+
+        for nx, ny, _ in old_states.values():
+            self[nx, ny] = None
+
+        for i in range(8):
+            i /= 2
+            nx, ny, cell = old_states[i]
+            if cell is None:
+                continue
+
+            target_idx = (i + rotation) % 4
+            target_nx, target_ny, _ = old_states[target_idx]
+
+            to_copy = cell.copy()
+            to_copy.direction = (to_copy.direction + rotation) % 4
+            self[target_nx, target_ny] = to_copy
+
+    def DoGear(self, x, y, cell):
+        rotation = {
+            "cw gear": 1,
+            "ccw gear": -1,
+        }
+        self.do_basic_gear(x, y, rotation[cell.name])
 
 grid = Grid(grid_width, grid_height)
 
 class EffectList:
     def __init__(self, d=None):
         d = d or {}
-        for var in ["frozen"]:
+        for var in ["frozen", "thawed"]:
             setattr(self, var, d.get(var, False))
 
 class Cell:
@@ -328,6 +419,5 @@ class Cell:
 
     def copy(self):
         copied = Cell(**vars(self))
-        copied.updated = False
         copied.effects = deepcopy(copied.effects)
         return copied
