@@ -18,6 +18,26 @@ chunks = {
     "generator": ["cw generator", "ccw generator"],
 }
 
+tags = {}
+def add_tag(tag, pairs):
+    for pair in pairs.items():
+        tags[pair[0]] = pair[1]
+
+def get_tag(name, tag, *args):
+    f = tags.get(name, None)
+    if callable(f):
+        return f(*args)
+    return f
+
+def is_unbreakable(cell, force_type, side):
+    return get_tag(cell.name, "is_unbreakable", force_type, side, cell)
+
+add_tag("unbreakable", {
+    "wall": True,
+    "ghost": True,
+    "freezer": lambda f_t, s, c: f_t == "freeze"
+})
+
 def to_vec(direction):
     return {
         0: Vector(1, 0),
@@ -71,6 +91,28 @@ class Vector:
         new_y = self.x * sin_theta + self.y * cos_theta
         self.x = round(new_x)
         self.y = round(new_y)
+
+class EffectList:
+    def __init__(self, d=None):
+        d = d or {}
+        for var in ["frozen", "thawed"]:
+            setattr(self, var, d.get(var, False))
+
+class Cell:
+    def __init__(self, direction, name, oldx=None, oldy=None, olddirection=None, eatencells=None, updated=False, effects=None):
+        self.direction = direction
+        self.name = name
+        self.oldx = oldx
+        self.oldy = oldy
+        self.olddirection = olddirection
+        self.eatencells = [] if eatencells is None else eatencells
+        self.updated = updated
+        self.effects = effects if effects is not None else EffectList([])
+
+    def copy(self):
+        copied = Cell(**vars(self))
+        copied.effects = deepcopy(copied.effects)
+        return copied
 
 class Grid:
     def __init__(self, width, height):
@@ -186,23 +228,27 @@ class Grid:
             l[i] = (x+v.x, y+v.y, self[x+v.x, y+v.y])
         return l
 
-    def freeze_cell(self, x, y):
+    def freeze_cell(self, x, y, side):
         if self[x, y] is not None:
+            if is_unbreakable(self[x, y], "freeze", side): return
             if self[x, y].effects.thawed: return
             self[x, y].effects.frozen = True
 
-    def thaw_cell(self, x, y):
+    def thaw_cell(self, x, y, side):
         if self[x, y] is not None:
+            if is_unbreakable(self[x, y], "thaw", side): return
             self[x, y].effects.thawed = True
             self[x, y].effects.frozen = False
 
-    def rotate_cell(self, x, y, amt):
+    def rotate_cell(self, x, y, amt, side):
         if self[x, y] is not None:
+            if is_unbreakable(self[x, y], "rotate", side): return
             self[x, y].direction += amt
             self[x, y].direction %= 4
 
-    def redirect_cell(self, x, y, direction):
+    def redirect_cell(self, x, y, direction, side):
         if self[x, y] is not None:
+            if is_unbreakable(self[x, y], "redirect", side): return
             self[x, y].direction = direction
 
     def eat_cell(self, x, y, tx, ty):
@@ -226,12 +272,22 @@ class Grid:
             else:
                 side = to_side(cell.direction, cdir)
                 if cell.name == "curve diverger":
-                    if side == 0:
-                        direction.rotate(-1)
-                    elif side == 1:
-                        direction.rotate(1)
-                    else:
-                        break
+                    if side == 0: direction.rotate(-1)
+                    elif side == 1: direction.rotate(1)
+                    else: break
+                elif cell.name == "straight diverger":
+                    if side % 2 == 0: pass
+                    else: break
+                elif cell.name == "bicurve diverger":
+                    if side % 2 == 0: direction.rotate(-1)
+                    elif side % 2 == 1: direction.rotate(1)
+                    else: break
+                elif cell.name == "bistraight diverger":
+                    if side % 1 == 0: pass
+                    else: break
+                elif cell.name == "diode diverger":
+                    if side == 2: pass
+                    else: break
                 else:
                     break
         if cell is not None:
@@ -312,6 +368,9 @@ class Grid:
         replace_cell = flags.get("replacecell", None)
         success = True
 
+        if is_unbreakable(cell, "push", side):
+            flags["force"] = 0
+
         if cell.name == "slide":
             if side % 2 != 0:
                 flags["force"] = 0
@@ -327,19 +386,22 @@ class Grid:
         if cell.name == "one directional":
             if side != 0:
                 flags["force"] = 0
-        if cell.name == "wall":
-            flags["force"] = 0
 
         if cell.name == "weight":
             flags["force"] -= 1
         if cell.name == "anti weight":
             flags["force"] += 1
-
         if cell.name == "bias":
             if side == 2:
                 flags["force"] += 1
             elif side == 0:
                 flags["force"] -= 1
+        if cell.name == "gold":
+            if side % 1 != 0:
+                flags["force"] = 0
+        if cell.name == "lead":
+            if side % 1 == 0:
+                flags["force"] = 0
 
         if cell.name == "trash":
             if lastpos is not None:
@@ -376,8 +438,9 @@ class Grid:
             "ccw rotator": -1,
             "180 rotator": 2,
         }[cell.name]
-        for i, j, c in self.get_neighbors(x, y):
-            self.rotate_cell(i, j, rotation)
+        for k, (i, j, c) in enumerate(self.get_neighbors(x, y)):
+            if not c: continue
+            self.rotate_cell(i, j, rotation, to_side(c.direction, k))
 
     def DoGenerator(self, x, y, cell):
         front_outputs = {
@@ -389,31 +452,38 @@ class Grid:
         bx, by, j, copy = self.step_backward(x, y, to_vec(cell.direction))
         fx, fy, k, _ = self.step_forward(x, y, to_vec((cell.direction + front_output)%4))
         if copy is None: return
+        if copy.name == "ghost": return
         copy.direction += front_output
         self.push_cell(fx, fy, to_vec((cell.direction + front_output)%4), {"replacecell": copy})
 
     def DoRedirector(self, x, y, cell):
-        for i, j, c in self.get_neighbors(x, y):
-            self.redirect_cell(i, j, cell.direction)
+        for k, (i, j, c) in enumerate(self.get_neighbors(x, y)):
+            if not c: continue
+            self.redirect_cell(i, j, cell.direction, to_side(c.direction, k))
 
     def DoThawer(self, x, y, cell):
-        for vx, vy, vcell in self.get_neighbors(x, y):
-            self.thaw_cell(vx, vy)
+        for k, (i, j, c) in enumerate(self.get_neighbors(x, y)):
+            if not c: continue
+            self.thaw_cell(i, j, to_side(c.direction, k))
 
     def DoFreezer(self, x, y, cell):
-        for vx, vy, vcell in self.get_neighbors(x, y):
-            self.freeze_cell(vx, vy)
+        for k, (i, j, c) in enumerate(self.get_neighbors(x, y)):
+            if not c: continue
+            self.freeze_cell(i, j, to_side(c.direction, k))
 
     def do_basic_gear(self, gear_x, gear_y, rotation):
         neighbors = self.get_surrounding(gear_x, gear_y)
         old_states = neighbors.copy()
-        gears = ["cw gear", "ccw gear"]
+        gears = ["cw gear", "ccw gear", "jam"]
 
-        for nx, ny, _ in old_states.values():
-            if self[nx, ny] is not None and self[nx, ny].name in gears:
-                return
+        for i, (nx, ny, c) in enumerate(old_states.values()):
+            if self[nx, ny] is not None:
+                if self[nx, ny].name in gears:
+                    return
+                if is_unbreakable(c, "gear", to_side(c.direction, i)):
+                    return
 
-        self.rotate_cell(gear_x, gear_y, rotation)
+        self.rotate_cell(gear_x, gear_y, rotation, 0)
 
         for nx, ny, _ in old_states.values():
             self[nx, ny] = None
@@ -439,25 +509,3 @@ class Grid:
         self.do_basic_gear(x, y, rotation[cell.name])
 
 grid = Grid(grid_width, grid_height)
-
-class EffectList:
-    def __init__(self, d=None):
-        d = d or {}
-        for var in ["frozen", "thawed"]:
-            setattr(self, var, d.get(var, False))
-
-class Cell:
-    def __init__(self, direction, name, oldx=None, oldy=None, olddirection=None, eatencells=None, updated=False, effects=None):
-        self.direction = direction
-        self.name = name
-        self.oldx = oldx
-        self.oldy = oldy
-        self.olddirection = olddirection
-        self.eatencells = [] if eatencells is None else eatencells
-        self.updated = updated
-        self.effects = effects if effects is not None else EffectList([])
-
-    def copy(self):
-        copied = Cell(**vars(self))
-        copied.effects = deepcopy(copied.effects)
-        return copied

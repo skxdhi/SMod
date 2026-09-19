@@ -70,22 +70,30 @@ celltypes = {
     "weight": {"desc": "When moved by a physical force, subtracts 1 from the force."},
     "anti weight": {"desc": "When moved by a physical force, adds 1 to the force."},
     "bias": {"desc": "Acts like a Weight cell on the front and an Anti Weight on the back; It doesnt do anything on the other sides."},
+    "gold": {"desc": "Can only be pushed by orthogonal forces."},
+    "lead": {"desc": "Can only be pushed by diagonal forces."},
+    "ghost": {"desc": "A Wall that cannot be generated."},
+    "jam": {"desc": "When a Gear tries to move this cell, it will jam the gear instead (stop it)."},
+    "straight diverger": {"desc": "Like a Curve Diverger thats bent to be straight."},
+    "diode diverger": {"desc": "A Straight Diverger that can only diverge on its back side."},
+    "bicurve diverger": {"desc": "Two Curve Divergers 180 degrees from each other."},
+    "bistraight diverger": {"desc": "Two Straight Divergers perpendicular to each other."},
 }
 
 subcategories = {
     "movers": ["mover"],
     "pushables": ["push", "zero directional", "one directional", "two directional", "slide", "three directional",
                   "random push"],
-    "weights": ["weight", "anti weight", "bias"],
+    "weights": ["weight", "anti weight", "bias", "gold", "lead"],
     "rotators": ["cw rotator", "ccw rotator", "180 rotator"],
     "generators": ["generator", "cw generator", "ccw generator"],
-    "walls": ["wall"],
+    "walls": ["wall", "ghost"],
     "trashes": ["trash"],
     "enemies": ["enemy"],
-    "divergers": ["curve diverger"],
+    "divergers": ["curve diverger", "bicurve diverger", "straight diverger", "bistraight diverger", "diode diverger"],
     "redirectors": ["redirector"],
     "effect givers": ["freezer", "thawer"],
-    "gears": ["cw gear", "ccw gear"],
+    "gears": ["cw gear", "ccw gear", "jam"],
 }
 
 categories = {
@@ -270,6 +278,18 @@ def update_ui_elements():
     update_subcategory_buttons()
     update_cell_buttons()
 
+def toggle_sim(b):
+    global sim_running
+    start_surf = images["mover"]
+    pause_surf = pygame.transform.rotate(images["slide"].copy(), 90)
+    sim_running = not sim_running
+    if sim_running:
+        b.image = pause_surf.copy()
+    else:
+        b.image = start_surf.copy()
+
+sim_button = ui.ImageButton(20, 20, 70, 70, images["mover"], toggle_sim)
+add_ui(sim_button, ["Simulation Button"])
 
 update_ui_elements()
 
@@ -409,7 +429,7 @@ while running:
                 selected_cell["direction"] += 0.5
                 selected_cell["direction"] %= 4
             if event.key == pygame.K_SPACE:
-                sim_running = not sim_running
+                toggle_sim(sim_button)
             if event.key == pygame.K_f:
                 sim_running = False
                 grid.update_cells()
@@ -426,12 +446,17 @@ while running:
                 camera_x = (world_m_x * cell_size // old_cell_size) - mouse_pos[0]
                 camera_y = (world_m_y * cell_size // old_cell_size) - mouse_pos[1]
         if event.type == pygame.MOUSEBUTTONUP:
-            UI.click()
+            if event.button not in (4, 5):
+                UI.click()
     mouse_buttons = pygame.mouse.get_pressed()
     if mouse_buttons[0] and not UI.hover():
         place_cell(mx, my, selected_cell["direction"], selected_cell["name"])
     if mouse_buttons[2] and not UI.hover():
         delete_cell(mx, my)
+    for x in range(grid.width):
+        for y in range(grid.height):
+            if x == 0 or y == 0 or x == grid.width - 1 or y == grid.height - 1:
+                grid[x, y] = Cell(0, "ghost")
     key_buttons = pygame.key.get_pressed()
     cam_speed = 60 * dt * 5
     if key_buttons[pygame.K_w]:

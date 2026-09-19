@@ -119,6 +119,9 @@ class ImageButton(ButtonTemplate):
 
         surf = self.image.copy()
         surf = pygame.transform.scale(surf, (max(1, current_w), max(1, current_h)))
+        surf.set_alpha(210)
+        if self.hover():
+            surf.set_alpha(250)
 
         draw_x = self.x + (self.width - current_w) // 2
         draw_y = self.y + (self.height - current_h) // 2
