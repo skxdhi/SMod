@@ -52,8 +52,8 @@ celltypes = {
     "three directional": {"desc": "Can ony be pushed on the indicated sides."},
     "zero directional": {"desc": "Can ony be pushed on the indicated sides, except there is no indicated sides."},
     "random push": {"desc": "A Push cell that has a 1/2 chance to not be movable."},
-    "cw rotator": {"desc": "Rotates neighboring cells 90 degrees clockwise."},
-    "ccw rotator": {"desc": "Rotates neighboring cells 90 degrees counterclockwise."},
+    "cw 90 rotator": {"desc": "Rotates neighboring cells 90 degrees clockwise."},
+    "ccw 90 rotator": {"desc": "Rotates neighboring cells 90 degrees counterclockwise."},
     "180 rotator": {"desc": "Rotates neighboring cells 180 degrees."},
     "generator": {"desc": "Attempts to copy the cell behind it and put the copy in front of it. If something is blocking it then it will attempt to push the cell blocking it before it generates again"},
     "cw generator": {"desc": "Generator whose output is bent clockwise."},
@@ -67,28 +67,42 @@ celltypes = {
     "redirector": {"desc": "Turns adjacent cells to face the direction this cell is facing."},
     "cw gear": {"desc": "Rotates neighboring cells 90 degrees clockwise around it."},
     "ccw gear": {"desc": "Rotates neighboring cells 90 degrees counterclockwise around it."},
+    "weight": {"desc": "When moved by a physical force, subtracts 1 from the force."},
+    "anti weight": {"desc": "When moved by a physical force, adds 1 to the force."},
+    "bias": {"desc": "Acts like a Weight cell on the front and an Anti Weight on the back; It doesnt do anything on the other sides."},
+    "gold": {"desc": "Can only be pushed by orthogonal forces."},
+    "lead": {"desc": "Can only be pushed by diagonal forces."},
+    "ghost": {"desc": "A Wall that cannot be generated."},
+    "jam": {"desc": "When a Gear tries to move this cell, it will jam the gear instead (stop it)."},
+    "straight diverger": {"desc": "Like a Curve Diverger thats bent to be straight."},
+    "diode diverger": {"desc": "A Straight Diverger that can only diverge on its back side."},
+    "bicurve diverger": {"desc": "Two Curve Divergers 180 degrees from each other."},
+    "bistraight diverger": {"desc": "Two Straight Divergers perpendicular to each other."},
+    "leaper": {"desc": "A Mover that skips the cell in front of it and goes to the one after that. (Rise: 0, Run: 2)"},
+    "random 90 rotator": {"desc": "Rotates neighboring cells 90 degrees either clockwise or counterclockwise."},
 }
 
 subcategories = {
-    "movers": ["mover"],
+    "movers": ["mover", "leaper"],
     "pushables": ["push", "zero directional", "one directional", "two directional", "slide", "three directional",
                   "random push"],
-    "rotators": ["cw rotator", "ccw rotator", "180 rotator"],
+    "weights": ["weight", "anti weight", "bias", "gold", "lead"],
+    "rotators": ["cw 90 rotator", "ccw 90 rotator", "random 90 rotator", "180 rotator"],
     "generators": ["generator", "cw generator", "ccw generator"],
-    "walls": ["wall"],
+    "walls": ["wall", "ghost"],
     "trashes": ["trash"],
     "enemies": ["enemy"],
-    "divergers": ["curve diverger"],
+    "divergers": ["curve diverger", "bicurve diverger", "straight diverger", "bistraight diverger", "diode diverger"],
     "redirectors": ["redirector"],
     "effect givers": ["freezer", "thawer"],
-    "gears": ["cw gear", "ccw gear"],
+    "gears": ["cw gear", "ccw gear", "jam"],
 }
 
 categories = {
-    "Base": [subcategories["pushables"], subcategories["walls"], images["push"]],
+    "Base": [subcategories["pushables"], subcategories["weights"], subcategories["walls"], images["push"]],
     "Movers": [subcategories["movers"], images["mover"]],
     "Recreators": [subcategories["generators"], images["generator"]],
-    "Rotators": [subcategories["rotators"], subcategories["redirectors"], subcategories["gears"], images["cw rotator"]],
+    "Rotators": [subcategories["rotators"], subcategories["redirectors"], subcategories["gears"], images["cw 90 rotator"]],
     "Forcers": [subcategories["gears"], images["cw gear"]],
     "Destroyers": [subcategories["trashes"], subcategories["enemies"], images["trash"]],
     "Divergers": [subcategories["divergers"], images["curve diverger"]],
@@ -266,6 +280,18 @@ def update_ui_elements():
     update_subcategory_buttons()
     update_cell_buttons()
 
+def toggle_sim(b):
+    global sim_running
+    start_surf = images["mover"]
+    pause_surf = pygame.transform.rotate(images["slide"].copy(), 90)
+    sim_running = not sim_running
+    if sim_running:
+        b.image = pause_surf.copy()
+    else:
+        b.image = start_surf.copy()
+
+sim_button = ui.ImageButton(20, 20, 70, 70, images["mover"], toggle_sim)
+add_ui(sim_button, ["Simulation Button"])
 
 update_ui_elements()
 
@@ -279,6 +305,12 @@ def lerpp(s, e, t):
     if s is None: return e
     return s + t * (e - s)
 
+def lerp_angle(s, e, t):
+    if s is None:
+        return e
+
+    difference = (e - s + 2) % 4 - 2
+    return s + difference * t
 
 def draw_cell(x, y, direction, name, flags=None):
     screen_x = int((x * cell_size) - camera_x)
@@ -325,7 +357,6 @@ def draw_ghost_cell(x, y, direction, name):
     box_rect.center = (center_x, center_y)
     pygame.draw.rect(screen, (255, 255, 255, 220), box_rect, width=max(1, int(cell_size * 0.15)))
 
-
 def draw_grid():
     for x, y, cell in grid:
         draw_cell(x, y, 0, "bg")
@@ -336,14 +367,12 @@ def draw_grid():
                   lerpp(cell.olddirection, cell.direction, lerp), cell.name, flags={"eaten": True})
     for x, y, cell in grid:
         if cell is None: continue
-        if cell.olddirection == 3 and cell.direction == 0: cell.olddirection = -1
-        if cell.olddirection == 0 and cell.direction == 3: cell.olddirection = 4
-        draw_cell(lerpp(cell.oldx, x, lerp), lerpp(cell.oldy, y, lerp), lerpp(cell.olddirection, cell.direction, lerp),
+        draw_cell(lerpp(cell.oldx, x, lerp), lerpp(cell.oldy, y, lerp), lerp_angle(cell.olddirection, cell.direction, lerp),
                   cell.name)
         for effect in vars(cell.effects):
             if not getattr(cell.effects, effect): continue
             draw_cell(lerpp(cell.oldx, x, lerp), lerpp(cell.oldy, y, lerp),
-                      lerpp(0, 0, lerp),
+                      0,
                       f"effects/{effect}")
 
 
@@ -395,8 +424,14 @@ while running:
             if event.key == pygame.K_q:
                 selected_cell["direction"] += -1
                 selected_cell["direction"] %= 4
+            if event.key == pygame.K_r:
+                selected_cell["direction"] -= 0.5
+                selected_cell["direction"] %= 4
+            if event.key == pygame.K_t:
+                selected_cell["direction"] += 0.5
+                selected_cell["direction"] %= 4
             if event.key == pygame.K_SPACE:
-                sim_running = not sim_running
+                toggle_sim(sim_button)
             if event.key == pygame.K_f:
                 sim_running = False
                 grid.update_cells()
@@ -413,12 +448,17 @@ while running:
                 camera_x = (world_m_x * cell_size // old_cell_size) - mouse_pos[0]
                 camera_y = (world_m_y * cell_size // old_cell_size) - mouse_pos[1]
         if event.type == pygame.MOUSEBUTTONUP:
-            UI.click()
+            if event.button not in (4, 5):
+                UI.click()
     mouse_buttons = pygame.mouse.get_pressed()
     if mouse_buttons[0] and not UI.hover():
         place_cell(mx, my, selected_cell["direction"], selected_cell["name"])
     if mouse_buttons[2] and not UI.hover():
         delete_cell(mx, my)
+    for x in range(grid.width):
+        for y in range(grid.height):
+            if x == 0 or y == 0 or x == grid.width - 1 or y == grid.height - 1:
+                grid[x, y] = Cell(0, "ghost")
     key_buttons = pygame.key.get_pressed()
     cam_speed = 60 * dt * 5
     if key_buttons[pygame.K_w]:
