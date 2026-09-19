@@ -67,12 +67,16 @@ celltypes = {
     "redirector": {"desc": "Turns adjacent cells to face the direction this cell is facing."},
     "cw gear": {"desc": "Rotates neighboring cells 90 degrees clockwise around it."},
     "ccw gear": {"desc": "Rotates neighboring cells 90 degrees counterclockwise around it."},
+    "weight": {"desc": "When moved by a physical force, subtracts 1 from the force."},
+    "anti weight": {"desc": "When moved by a physical force, adds 1 to the force."},
+    "bias": {"desc": "Acts like a Weight cell on the front and an Anti Weight on the back; It doesnt do anything on the other sides."},
 }
 
 subcategories = {
     "movers": ["mover"],
     "pushables": ["push", "zero directional", "one directional", "two directional", "slide", "three directional",
                   "random push"],
+    "weights": ["weight", "anti weight", "bias"],
     "rotators": ["cw rotator", "ccw rotator", "180 rotator"],
     "generators": ["generator", "cw generator", "ccw generator"],
     "walls": ["wall"],
@@ -85,7 +89,7 @@ subcategories = {
 }
 
 categories = {
-    "Base": [subcategories["pushables"], subcategories["walls"], images["push"]],
+    "Base": [subcategories["pushables"], subcategories["weights"], subcategories["walls"], images["push"]],
     "Movers": [subcategories["movers"], images["mover"]],
     "Recreators": [subcategories["generators"], images["generator"]],
     "Rotators": [subcategories["rotators"], subcategories["redirectors"], subcategories["gears"], images["cw rotator"]],
@@ -279,6 +283,12 @@ def lerpp(s, e, t):
     if s is None: return e
     return s + t * (e - s)
 
+def lerp_angle(s, e, t):
+    if s is None:
+        return e
+
+    difference = (e - s + 2) % 4 - 2
+    return s + difference * t
 
 def draw_cell(x, y, direction, name, flags=None):
     screen_x = int((x * cell_size) - camera_x)
@@ -325,7 +335,6 @@ def draw_ghost_cell(x, y, direction, name):
     box_rect.center = (center_x, center_y)
     pygame.draw.rect(screen, (255, 255, 255, 220), box_rect, width=max(1, int(cell_size * 0.15)))
 
-
 def draw_grid():
     for x, y, cell in grid:
         draw_cell(x, y, 0, "bg")
@@ -336,14 +345,12 @@ def draw_grid():
                   lerpp(cell.olddirection, cell.direction, lerp), cell.name, flags={"eaten": True})
     for x, y, cell in grid:
         if cell is None: continue
-        if cell.olddirection == 3 and cell.direction == 0: cell.olddirection = -1
-        if cell.olddirection == 0 and cell.direction == 3: cell.olddirection = 4
-        draw_cell(lerpp(cell.oldx, x, lerp), lerpp(cell.oldy, y, lerp), lerpp(cell.olddirection, cell.direction, lerp),
+        draw_cell(lerpp(cell.oldx, x, lerp), lerpp(cell.oldy, y, lerp), lerp_angle(cell.olddirection, cell.direction, lerp),
                   cell.name)
         for effect in vars(cell.effects):
             if not getattr(cell.effects, effect): continue
             draw_cell(lerpp(cell.oldx, x, lerp), lerpp(cell.oldy, y, lerp),
-                      lerpp(0, 0, lerp),
+                      0,
                       f"effects/{effect}")
 
 
@@ -394,6 +401,12 @@ while running:
                 selected_cell["direction"] %= 4
             if event.key == pygame.K_q:
                 selected_cell["direction"] += -1
+                selected_cell["direction"] %= 4
+            if event.key == pygame.K_r:
+                selected_cell["direction"] -= 0.5
+                selected_cell["direction"] %= 4
+            if event.key == pygame.K_t:
+                selected_cell["direction"] += 0.5
                 selected_cell["direction"] %= 4
             if event.key == pygame.K_SPACE:
                 sim_running = not sim_running

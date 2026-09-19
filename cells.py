@@ -24,17 +24,21 @@ def to_vec(direction):
         1: Vector(0, 1),
         2: Vector(-1, 0),
         3: Vector(0, -1),
-        0.5: Vector(1, -1),
-        1.5: Vector(1, 1),
-        2.5: Vector(-1, 1),
-        3.5: Vector(-1, -1),
+        0.5: Vector(1, 1),
+        1.5: Vector(-1, 1),
+        2.5: Vector(-1, -1),
+        3.5: Vector(1, -1),
     }[direction]
 
 def to_dir(vector):
     if vector.x == 1 and vector.y == 0: return 0
+    if vector.x == 1 and vector.y == 1: return 0.5
     if vector.x == 0 and vector.y == 1: return 1
+    if vector.x == -1 and vector.y == 1: return 1.5
     if vector.x == -1 and vector.y == 0: return 2
+    if vector.x == -1 and vector.y == -1: return 2.5
     if vector.x == 0 and vector.y == -1: return 3
+    if vector.x == 1 and vector.y == -1: return 3.5
     return math.atan2(vector.y, vector.x)
 
 def to_side(cell_dir, f_dir):
@@ -89,58 +93,83 @@ class Grid:
         for x in range(self.width):
             for y in range(self.height):
                 yield x, y, self[x, y]
+
     def subtick(self, chunkid, direction=None):
         func = getattr(self, "Do" + chunkid[0].upper() + chunkid[1:])
+
         if direction is None:
             for x, y, cell in self:
-                if (cell is not None and cell.name != chunkid) and (cell is not None and cell.name not in chunks.get(chunkid, [])):
+                if (cell is not None and cell.name != chunkid) and (
+                        cell is not None and cell.name not in chunks.get(chunkid, [])):
                     continue
                 if cell is not None and not cell.updated:
-                    if cell.effects.frozen: continue
+                    if cell.effects.frozen:
+                        continue
                     func(x, y, cell)
                     cell.updated = True
             return
-        if direction % 2 == 0:
-            r = range(0, self.width)
-            if direction == 0:
-                r = reversed(r)
-            for x in r:
-                for y in range(0, self.height):
-                    if (cell := self[x, y]) is not None and not cell.updated:
-                        if (cell.name != chunkid) and (cell.name not in chunks.get(chunkid, [])):
-                            continue
-                        if cell.direction == direction:
-                            if cell.effects.frozen: continue
-                            func(x, y, cell)
-                            cell.updated = True
-        elif direction % 2 == 1:
-            r = range(0, self.height)
-            if direction == 1:
-                r = reversed(r)
-            for y in r:
-                for x in range(0, self.width):
-                    if (cell := self[x, y]) is not None and not cell.updated:
-                        if (cell.name != chunkid) and (cell.name not in chunks.get(chunkid, [])):
-                            continue
-                        if cell.direction == direction:
-                            if cell.effects.frozen: continue
-                            func(x, y, cell)
-                            cell.updated = True
+
+        if direction == 0:
+            xs = range(self.width - 1, -1, -1)
+            ys = range(self.height)
+
+        elif direction == 1:
+            xs = range(self.width)
+            ys = range(self.height - 1, -1, -1)
+
+        elif direction == 2:
+            xs = range(self.width)
+            ys = range(self.height)
+
+        elif direction == 3:
+            xs = range(self.width)
+            ys = range(self.height)
+
+        elif direction == 0.5:
+            xs = range(self.width - 1, -1, -1)
+            ys = range(self.height - 1, -1, -1)
+
+        elif direction == 1.5:
+            xs = range(self.width)
+            ys = range(self.height - 1, -1, -1)
+
+        elif direction == 2.5:
+            xs = range(self.width)
+            ys = range(self.height)
+
+        elif direction == 3.5:
+            xs = range(self.width - 1, -1, -1)
+            ys = range(self.height)
+
+        for x in xs:
+            for y in ys:
+                cell = self[x, y]
+
+                if cell is None or cell.updated:
+                    continue
+
+                if cell.name != chunkid and cell.name not in chunks.get(chunkid, []):
+                    continue
+
+                if cell.direction == direction:
+                    if cell.effects.frozen:
+                        continue
+
+                    func(x, y, cell)
+                    cell.updated = True
+
+    def direction_subtick(self, chunkid):
+        for i in [0, 0.5, 2, 2.5, 1, 1.5, 3, 3.5]:
+            self.subtick(chunkid, i)
 
     def update_cells(self):
         self.subtick("thawer")
         self.subtick("freezer")
-        self.subtick("generator", 0)
-        self.subtick("generator", 2)
-        self.subtick("generator", 1)
-        self.subtick("generator", 3)
+        self.direction_subtick("generator")
         self.subtick("gear")
         self.subtick("rotator")
         self.subtick("redirector")
-        self.subtick("mover", 0)
-        self.subtick("mover", 2)
-        self.subtick("mover", 1)
-        self.subtick("mover", 3)
+        self.direction_subtick("mover")
 
     def get_neighbors(self, x, y):
         l = []
@@ -300,6 +329,17 @@ class Grid:
                 flags["force"] = 0
         if cell.name == "wall":
             flags["force"] = 0
+
+        if cell.name == "weight":
+            flags["force"] -= 1
+        if cell.name == "anti weight":
+            flags["force"] += 1
+
+        if cell.name == "bias":
+            if side == 2:
+                flags["force"] += 1
+            elif side == 0:
+                flags["force"] -= 1
 
         if cell.name == "trash":
             if lastpos is not None:
