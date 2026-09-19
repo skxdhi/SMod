@@ -13,9 +13,10 @@ mover cell on the list
 """
 
 chunks = {
-    "rotator": ["cw rotator", "ccw rotator", "180 rotator"],
+    "rotator": ["cw 90 rotator", "ccw 90 rotator", "180 rotator", "random 90 rotator"],
     "gear": ["cw gear", "ccw gear"],
     "generator": ["cw generator", "ccw generator"],
+    "mover": ["leaper"]
 }
 
 tags = {}
@@ -35,6 +36,7 @@ def is_unbreakable(cell, force_type, side):
 add_tag("unbreakable", {
     "wall": True,
     "ghost": True,
+    "redirector": lambda f_t, s, c: f_t == "redirect",
     "freezer": lambda f_t, s, c: f_t == "freeze"
 })
 
@@ -51,14 +53,22 @@ def to_vec(direction):
     }[direction]
 
 def to_dir(vector):
-    if vector.x == 1 and vector.y == 0: return 0
-    if vector.x == 1 and vector.y == 1: return 0.5
-    if vector.x == 0 and vector.y == 1: return 1
-    if vector.x == -1 and vector.y == 1: return 1.5
-    if vector.x == -1 and vector.y == 0: return 2
-    if vector.x == -1 and vector.y == -1: return 2.5
-    if vector.x == 0 and vector.y == -1: return 3
-    if vector.x == 1 and vector.y == -1: return 3.5
+    mag = vector.magnitude
+    if mag == 0:
+        return 0
+
+    ux = round(vector.x / mag)
+    uy = round(vector.y / mag)
+
+    if ux == 1 and uy == 0: return 0
+    if ux == 1 and uy == 1: return 0.5
+    if ux == 0 and uy == 1: return 1
+    if ux == -1 and uy == 1: return 1.5
+    if ux == -1 and uy == 0: return 2
+    if ux == -1 and uy == -1: return 2.5
+    if ux == 0 and uy == -1: return 3
+    if ux == 1 and uy == -1: return 3.5
+
     return math.atan2(vector.y, vector.x)
 
 def to_side(cell_dir, f_dir):
@@ -355,10 +365,6 @@ class Grid:
         cell = self[x, y]
         old_direction = Vector(direction.x, direction.y)
         nx, ny, direction, _ = self.step_forward(x, y, direction)
-        if cell is not None:
-            old_dir = to_dir(old_direction)
-            new_dir = to_dir(direction)
-            cell.direction = (cell.direction + new_dir - old_dir) % 4
         ddir = to_dir(direction)
         side = to_side(cell.direction, ddir)
         front_cell = self[nx, ny]
@@ -426,20 +432,28 @@ class Grid:
                 elif front_cell.direction == (ddir+2)%4:
                     flags["force"] -= 1
         if flags["force"] <= 0: success = False
+        if cell is not None:
+            old_dir = to_dir(old_direction)
+            new_dir = to_dir(direction)
+            cell.direction = (cell.direction + new_dir - old_dir) % 4
         flags["replacecell"] = replace_cell
         return nx, ny, direction, flags, success
 
     def DoMover(self, x, y, cell):
-        self.push_cell(x, y, to_vec(cell.direction))
+        if cell.name == "mover":
+            self.push_cell(x, y, to_vec(cell.direction))
+        elif cell.name == "leaper":
+            self.push_cell(x, y, to_vec(cell.direction)*2)
 
     def DoRotator(self, x, y, cell):
-        rotation = {
-            "cw rotator": 1,
-            "ccw rotator": -1,
-            "180 rotator": 2,
-        }[cell.name]
+        rotation = next((val for key, val in {"45": 45, "90": 90, "135": 135, "180": 180, "360": 360}.items() if key in cell.name), 0)/90
+        if "ccw" in cell.name:
+            rotation = -rotation
+        if "random" in cell.name:
+            rotation = str(rotation)
         for k, (i, j, c) in enumerate(self.get_neighbors(x, y)):
             if not c: continue
+            if isinstance(rotation, str): self.rotate_cell(i, j, random.choice([float(rotation), -float(rotation)]), to_side(c.direction, k)); continue
             self.rotate_cell(i, j, rotation, to_side(c.direction, k))
 
     def DoGenerator(self, x, y, cell):
