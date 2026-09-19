@@ -13,7 +13,7 @@ mover cell on the list
 """
 
 chunks = {
-    "rotator": ["cw 90 rotator", "ccw 90 rotator", "180 rotator", "random 90 rotator"],
+    "rotator": ["cw 90 rotator", "ccw 90 rotator", "180 rotator", "random 90 rotator", "cw 45 rotator", "ccw 45 rotator", "random 45 rotator", "cw 135 rotator", "ccw 135 rotator", "random 135 rotator"],
     "gear": ["cw gear", "ccw gear"],
     "generator": ["cw generator", "ccw generator"],
     "mover": ["leaper"]
@@ -330,10 +330,43 @@ class Grid:
         flags = flags if flags is not None else {}
         flags["force"] = flags.get("force", 1)
         flags["replacecell"] = flags.get("replacecell", None)
+
         to_push = []
         success = True
         lastx, lasty = (None,) * 2
         flags["loops"] = -1
+
+        if flags.get("ignore_first", False):
+            cx += direction.x
+            cy += direction.y
+            to_push.append((orig_x, orig_y, cx, cy))
+            lastx, lasty = orig_x, orig_y
+
+        sim_cx, sim_cy = cx, cy
+        sim_dir = Vector(direction.x, direction.y)
+        sim_loops = flags["loops"]
+        path_coords = set()
+
+        while True:
+            if (sim_cx, sim_cy) == (orig_x, orig_y):
+                sim_loops += 1
+            if sim_loops >= 5:
+                break
+            cell = self[sim_cx, sim_cy]
+            if cell is not None:
+                path_coords.add((sim_cx, sim_cy))
+                nx, ny, sim_dir, _ = self.step_forward(sim_cx, sim_cy, sim_dir)
+                sim_cx, sim_cy = nx, ny
+            else:
+                break
+
+        grid_snapshot = {}
+        if flags.get("test", False):
+            for px, py in path_coords:
+                c = self[px, py]
+                if c is not None:
+                    grid_snapshot[(px, py)] = (c, c.direction, c.updated, deepcopy(c.effects))
+
         while True:
             if (cx, cy) == (orig_x, orig_y):
                 flags["loops"] += 1
@@ -351,14 +384,31 @@ class Grid:
             to_push.append((oldx, oldy, cx, cy))
             lastx, lasty = oldx, oldy
 
-        if not success: return False
-        for px, py, pcx, pcy in reversed(to_push):
-            if self[px, py] is None: continue
-            self[pcx, pcy] = self[px, py]
-            self[px, py] = None
+        def restore_snapshot():
+            if flags.get("test", False):
+                for px, py in path_coords:
+                    self[px, py] = None
+                for (px, py), (cell, direction, updated, effects) in grid_snapshot.items():
+                    cell.direction = direction
+                    cell.updated = updated
+                    cell.effects = effects
+                    self[px, py] = cell
 
-        if self[orig_x, orig_y] is None:
-            self[orig_x, orig_y] = flags["replacecell"]
+        if not success:
+            restore_snapshot()
+            return False
+
+        if not flags.get("test", False):
+            for px, py, pcx, pcy in reversed(to_push):
+                if self[px, py] is None: continue
+                self[pcx, pcy] = self[px, py]
+                self[px, py] = None
+
+            if self[orig_x, orig_y] is None:
+                self[orig_x, orig_y] = flags["replacecell"]
+        else:
+            restore_snapshot()
+
         return True
 
     def handle_push(self, x, y, direction, flags):
@@ -416,6 +466,18 @@ class Grid:
             else:
                 replace_cell = None
             flags["break"] = True
+        if cell.name == "squish trash":
+            v = deepcopy(flags)
+            v["test"] = True
+            v["ignore_first"] = True
+            if not self.push_cell(x, y, direction, v):
+                if lastpos is not None:
+                    self.eat_cell(*lastpos, x, y)
+                    self[*lastpos] = None
+                else:
+                    replace_cell = None
+                flags["break"] = True
+
         if cell.name == "enemy":
             if lastpos is not None:
                 self[*lastpos] = None
@@ -424,6 +486,18 @@ class Grid:
             self.eat_cell(x, y, x, y)
             self[x, y] = None
             flags["break"] = True
+        if cell.name == "squish enemy":
+            v = deepcopy(flags)
+            v["test"] = True
+            v["ignore_first"] = True
+            if not self.push_cell(x, y, direction, v):
+                if lastpos is not None:
+                    self[*lastpos] = None
+                else:
+                    replace_cell = None
+                self.eat_cell(x, y, x, y)
+                self[x, y] = None
+                flags["break"] = True
 
         if front_cell is not None:
             if front_cell.name == "mover" and not front_cell.effects.frozen:

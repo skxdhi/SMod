@@ -80,6 +80,14 @@ celltypes = {
     "bistraight diverger": {"desc": "Two Straight Divergers perpendicular to each other."},
     "leaper": {"desc": "A Mover that skips the cell in front of it and goes to the one after that. (Rise: 0, Run: 2)"},
     "random 90 rotator": {"desc": "Rotates neighboring cells 90 degrees either clockwise or counterclockwise."},
+    "cw 45 rotator": {"desc": "Rotates neighboring cells 45 degrees clockwise."},
+    "ccw 45 rotator": {"desc": "Rotates neighboring cells 45 degrees counterclockwise."},
+    "random 45 rotator": {"desc": "Rotates neighboring cells 45 degrees either clockwise or counterclockwise."},
+    "cw 135 rotator": {"desc": "Rotates neighboring cells 135 degrees clockwise."},
+    "ccw 135 rotator": {"desc": "Rotates neighboring cells 135 degrees counterclockwise."},
+    "random 135 rotator": {"desc": "Rotates neighboring cells 135 degrees either clockwise or counterclockwise."},
+    "squish trash": {"desc": "A Trash that needs to be pushed against a wall to delete cells."},
+    "squish enemy": {"desc": "An Enemy that needs to be pushed against a wall to delete cells."},
 }
 
 subcategories = {
@@ -87,11 +95,11 @@ subcategories = {
     "pushables": ["push", "zero directional", "one directional", "two directional", "slide", "three directional",
                   "random push"],
     "weights": ["weight", "anti weight", "bias", "gold", "lead"],
-    "rotators": ["cw 90 rotator", "ccw 90 rotator", "random 90 rotator", "180 rotator"],
+    "rotators": ["cw 90 rotator", "cw 45 rotator", "cw 135 rotator", "ccw 90 rotator", "ccw 45 rotator", "ccw 135 rotator", "random 90 rotator", "random 45 rotator", "random 135 rotator", "180 rotator"],
     "generators": ["generator", "cw generator", "ccw generator"],
     "walls": ["wall", "ghost"],
-    "trashes": ["trash"],
-    "enemies": ["enemy"],
+    "trashes": ["trash", "squish trash"],
+    "enemies": ["enemy", "squish enemy"],
     "divergers": ["curve diverger", "bicurve diverger", "straight diverger", "bistraight diverger", "diode diverger"],
     "redirectors": ["redirector"],
     "effect givers": ["freezer", "thawer"],
@@ -111,7 +119,7 @@ categories = {
 
 lerp = 0
 update_delay = 0.2
-sim_running = False
+sim_running, stepping = (False,)*2
 
 camera_x, camera_y = 0, 0
 
@@ -290,8 +298,22 @@ def toggle_sim(b):
     else:
         b.image = start_surf.copy()
 
+def step_sim(b):
+    global stepping, sim_running, sim_button, lerp
+    if stepping: return
+    if sim_running:
+        toggle_sim(sim_button)
+        return
+    stepping = True
+    lerp = 0
+    sim_running = False
+    sim_button.image = images["mover"]
+    grid.update_cells()
+
 sim_button = ui.ImageButton(20, 20, 70, 70, images["mover"], toggle_sim)
 add_ui(sim_button, ["Simulation Button"])
+step_button = ui.ImageButton(95, 20, 70, 70, images["nudger"], step_sim)
+add_ui(step_button, ["Simulation Button"])
 
 update_ui_elements()
 
@@ -408,6 +430,7 @@ while running:
     lerp += dt * (1 / update_delay)
     if lerp >= 1:
         lerp = 0
+        stepping = False
         reset_cells()
         if sim_running:
             grid.update_cells()
@@ -433,8 +456,7 @@ while running:
             if event.key == pygame.K_SPACE:
                 toggle_sim(sim_button)
             if event.key == pygame.K_f:
-                sim_running = False
-                grid.update_cells()
+                step_sim(step_button)
         if event.type == pygame.MOUSEBUTTONDOWN:
             if event.button in (4, 5):
                 old_cell_size = cell_size
