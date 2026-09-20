@@ -98,6 +98,8 @@ class ButtonTemplate:
             self.anim_progress = min(1.0, self.anim_progress + dt * 8.0)
 
     def click(self):
+        if not self.enabled:
+            return
         self.func(self)
 
     def hover(self):
@@ -114,6 +116,7 @@ class ImageButton(ButtonTemplate):
         self.image = image
 
     def draw(self):
+        if not self.enabled: return
         current_w = int(self.width)
         current_h = int(self.height)
 
