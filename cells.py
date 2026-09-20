@@ -2,6 +2,7 @@ import math
 import random
 import sys
 from copy import deepcopy
+from utils import list_all
 
 import pygame
 grid_width = 50
@@ -13,10 +14,11 @@ mover cell on the list
 """
 
 chunks = {
-    "rotator": ["cw 90 rotator", "ccw 90 rotator", "180 rotator", "random 90 rotator", "cw 45 rotator", "ccw 45 rotator", "random 45 rotator", "cw 135 rotator", "ccw 135 rotator", "random 135 rotator"],
+    "rotator": ["cw 90 rotator", "ccw 90 rotator", "180 rotator", "random 90 rotator", "cw 45 rotator", "ccw 45 rotator", "random 45 rotator", "cw 135 rotator", "ccw 135 rotator", "random 135 rotator",
+                "skidhi 90"],
     "gear": ["cw gear", "ccw gear"],
     "generator": ["cw generator", "ccw generator"],
-    "mover": ["leaper"]
+    "mover": ["leaper", "hydra", "skidhi 90"]
 }
 
 tags = {}
@@ -33,11 +35,15 @@ def get_tag(name, tag, *args):
 def is_unbreakable(cell, force_type, side):
     return get_tag(cell.name, "is_unbreakable", force_type, side, cell)
 
+def unbreakable_to(*force_types):
+    return lambda f_t, s, c: f_t in force_types
+
 add_tag("unbreakable", {
     "wall": True,
     "ghost": True,
-    "redirector": lambda f_t, s, c: f_t == "redirect",
-    "freezer": lambda f_t, s, c: f_t == "freeze"
+    "redirector": unbreakable_to("redirect"),
+    "freezer": unbreakable_to("freeze"),
+    "mirror": lambda f_t, s, c: f_t == "swap" and s%2 == 0,
 })
 
 def to_vec(direction):
@@ -109,7 +115,7 @@ class EffectList:
             setattr(self, var, d.get(var, False))
 
 class Cell:
-    def __init__(self, direction, name, oldx=None, oldy=None, olddirection=None, eatencells=None, updated=False, effects=None):
+    def __init__(self, direction, name, oldx=None, oldy=None, olddirection=None, eatencells=None, updated=False, effects=None, noupdate=False):
         self.direction = direction
         self.name = name
         self.oldx = oldx
@@ -117,6 +123,7 @@ class Cell:
         self.olddirection = olddirection
         self.eatencells = [] if eatencells is None else eatencells
         self.updated = updated
+        self.noupdate = False
         self.effects = effects if effects is not None else EffectList([])
 
     def copy(self):
@@ -158,7 +165,10 @@ class Grid:
                     if cell.effects.frozen:
                         continue
                     func(x, y, cell)
-                    cell.updated = True
+                    if not cell.noupdate:
+                        cell.updated = True
+                    else:
+                        cell.noupdate = False
             return
 
         if direction == 0:
@@ -208,7 +218,10 @@ class Grid:
                         continue
 
                     func(x, y, cell)
-                    cell.updated = True
+                    if not cell.noupdate:
+                        cell.updated = True
+                    else:
+                        cell.noupdate = False
 
     def direction_subtick(self, chunkid):
         for i in [0, 0.5, 2, 2.5, 1, 1.5, 3, 3.5]:
@@ -217,10 +230,12 @@ class Grid:
     def update_cells(self):
         self.subtick("thawer")
         self.subtick("freezer")
+        self.direction_subtick("mirror")
         self.direction_subtick("generator")
         self.subtick("gear")
         self.subtick("rotator")
         self.subtick("redirector")
+        self.direction_subtick("puller")
         self.direction_subtick("mover")
 
     def get_neighbors(self, x, y):
@@ -263,6 +278,14 @@ class Grid:
 
     def eat_cell(self, x, y, tx, ty):
         self.eaten.append((self[x, y], (tx, ty)))
+
+    def direct_step_forward(self, x, y, direction=None):
+        if direction is None:
+            direction = to_vec(self[x, y].direction)
+
+        f = deepcopy(direction)
+        nx, ny = x + f.x, y + f.y
+        return nx, ny, f, self[nx, ny]
 
     def step_forward(self, x, y, direction):
         end_x, end_y = x, y
@@ -478,6 +501,41 @@ class Grid:
                     replace_cell = None
                 flags["break"] = True
 
+        if cell.name == "lichen":
+            self.eat_cell(x, y, x, y)
+            self[x, y] = None
+            flags["break"] = True
+
+            up_dir = (cell.direction + 1) % 4
+            down_dir = (cell.direction - 1) % 4
+
+            upcopy = deepcopy(cell)
+            downcopy = deepcopy(cell)
+            upcopy.updated = True
+            downcopy.updated = True
+            upcopy.direction = up_dir
+            downcopy.direction = down_dir
+
+            self[x, y] = upcopy
+            up_ok = self.push_cell(x, y, to_vec(up_dir), {"test": True, "ignore_first": True})
+
+            self[x, y] = downcopy
+            down_ok = self.push_cell(x, y, to_vec(down_dir), {"test": True, "ignore_first": True})
+
+            self[x, y] = None
+
+            if up_ok and down_ok:
+                self[x, y] = upcopy
+                self.push_cell(x, y, to_vec(up_dir), {"replacecell": None, "ignore_first": True})
+                self[x, y] = downcopy
+                self.push_cell(x, y, to_vec(down_dir), {"replacecell": None, "ignore_first": True})
+            elif up_ok:
+                self[x, y] = upcopy
+                self.push_cell(x, y, to_vec(up_dir), {"replacecell": None, "ignore_first": True})
+            elif down_ok:
+                self[x, y] = downcopy
+                self.push_cell(x, y, to_vec(down_dir), {"replacecell": None, "ignore_first": True})
+
         if cell.name == "enemy":
             if lastpos is not None:
                 self[*lastpos] = None
@@ -500,7 +558,7 @@ class Grid:
                 flags["break"] = True
 
         if front_cell is not None:
-            if front_cell.name == "mover" and not front_cell.effects.frozen:
+            if front_cell.name in ["mover", "leaper", "hydra", "skidhi 90"] and not front_cell.effects.frozen:
                 if front_cell.direction == ddir:
                     flags["force"] += 1
                 elif front_cell.direction == (ddir+2)%4:
@@ -513,13 +571,79 @@ class Grid:
         flags["replacecell"] = replace_cell
         return nx, ny, direction, flags, success
 
+    def swap_cells(self, x1, y1, x2, y2, side1, side2):
+        a, b = self[x1, y1], self[x2, y2]
+
+        a_copy = a.copy() if a is not None else None
+        b_copy = b.copy() if b is not None else None
+
+        if a_copy and is_unbreakable(a_copy, "swap", side1) or False: return False
+        if b_copy and is_unbreakable(b_copy, "swap", side2) or False: return False
+
+        self[x1, y1] = b_copy
+        self[x2, y2] = a_copy
+        return True
+
+    def DoMirror(self, x, y, cell):
+        if cell.name == "mirror":
+            fx, fy, _, _ = self.direct_step_forward(x, y, to_vec(cell.direction))
+            bx, by, _, _ = self.direct_step_forward(x, y, to_vec((cell.direction + 2) % 4))
+            side1 = self[fx, fy] and to_side(self[fx, fy].direction, cell.direction) or 0
+            side2 = self[bx, by] and to_side(self[bx, by].direction, (cell.direction + 2) % 4) or 0
+            self.swap_cells(fx, fy, bx, by, side1, side2)
+
     def DoMover(self, x, y, cell):
-        if cell.name == "mover":
+        if cell.name in ["mover", "skidhi 90"]:
             self.push_cell(x, y, to_vec(cell.direction))
         elif cell.name == "leaper":
-            self.push_cell(x, y, to_vec(cell.direction)*2)
+            self.push_cell(x, y, to_vec(cell.direction) * 2)
+        elif cell.name == "hydra":
+            if not self.push_cell(x, y, to_vec(cell.direction)):
+                up_dir = (cell.direction + 1) % 4
+                down_dir = (cell.direction - 1) % 4
+
+                upcopy = deepcopy(cell)
+                downcopy = deepcopy(cell)
+                upcopy.updated = True
+                downcopy.updated = True
+                upcopy.direction = up_dir
+                downcopy.direction = down_dir
+
+                self[x, y] = upcopy
+                up_ok = self.push_cell(x, y, to_vec(up_dir), {"test": True})
+
+                self[x, y] = downcopy
+                down_ok = self.push_cell(x, y, to_vec(down_dir), {"test": True})
+
+                self[x, y] = cell
+
+                if up_ok and down_ok:
+                    self[x, y] = upcopy
+                    self.push_cell(x, y, to_vec(up_dir), {"replacecell": None})
+                    self[x, y] = downcopy
+                    self.push_cell(x, y, to_vec(down_dir), {"replacecell": None})
+                elif up_ok:
+                    self[x, y] = upcopy
+                    self.push_cell(x, y, to_vec(up_dir), {"replacecell": None})
+                elif down_ok:
+                    self[x, y] = downcopy
+                    self.push_cell(x, y, to_vec(down_dir), {"replacecell": None})
+
+
+    def DoPuller(self, x, y, cell):
+        if cell.name == "puller":
+            self.pull_cell(x, y, to_vec(cell.direction))
 
     def DoRotator(self, x, y, cell):
+        if "skidhi" in cell.name:
+            rotation = next((val for key, val in {"45": 45, "90": 90, "135": 135, "180": 180, "360": 360}.items() if
+                             key in cell.name), 0) / 90
+            fx, fy, _, f = self.direct_step_forward(x, y, to_vec(cell.direction))
+            bx, by, _, b = self.direct_step_forward(x, y, to_vec((cell.direction+2)%4))
+            if f is not None: self.rotate_cell(fx, fy, rotation, to_side(f.direction, cell.direction))
+            if b is not None: self.rotate_cell(bx, by, -rotation, to_side(b.direction, cell.direction))
+            cell.noupdate = True
+            return
         rotation = next((val for key, val in {"45": 45, "90": 90, "135": 135, "180": 180, "360": 360}.items() if key in cell.name), 0)/90
         if "ccw" in cell.name:
             rotation = -rotation

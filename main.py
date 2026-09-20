@@ -2,6 +2,8 @@ import math
 import os
 import sys
 import textwrap
+import copy
+from copy import deepcopy
 
 import pygame
 
@@ -31,6 +33,7 @@ from loader import images, audio
 import cells
 
 grid = cells.grid
+saved = None
 Cell = cells.Cell
 pygame.display.set_caption("Cell Machine SMod")
 pygame.display.set_icon(pygame.image.load(resource_path("icon.ico")).convert_alpha())
@@ -88,12 +91,17 @@ celltypes = {
     "random 135 rotator": {"desc": "Rotates neighboring cells 135 degrees either clockwise or counterclockwise."},
     "squish trash": {"desc": "A Trash that needs to be pushed against a wall to delete cells."},
     "squish enemy": {"desc": "An Enemy that needs to be pushed against a wall to delete cells."},
+    "puller": {"desc": "A Mover that moves the line of cells behind it instead of in front of it; Stops if there is a cell in its way."},
+    "hydra": {"desc": "A Mover that splits perpendicularly when it hits a wall, if it can."},
+    "lichen": {"desc": "Splits like a Hydra when a cell attempts to push it. (VERY BUGGY)"},
+    "skidhi 90": {"desc": "ITS ME!!! Rotates the cell in front of it and the cell behind it."},
+    "mirror": {"desc": "Swaps the two cells it is pointing to."},
 }
 
 subcategories = {
-    "movers": ["mover", "leaper"],
+    "movers": ["mover", "skidhi 90", "leaper", "hydra"],
     "pushables": ["push", "zero directional", "one directional", "two directional", "slide", "three directional",
-                  "random push"],
+                  "random push", "lichen"],
     "weights": ["weight", "anti weight", "bias", "gold", "lead"],
     "rotators": ["cw 90 rotator", "cw 45 rotator", "cw 135 rotator", "ccw 90 rotator", "ccw 45 rotator", "ccw 135 rotator", "random 90 rotator", "random 45 rotator", "random 135 rotator", "180 rotator"],
     "generators": ["generator", "cw generator", "ccw generator"],
@@ -104,6 +112,7 @@ subcategories = {
     "redirectors": ["redirector"],
     "effect givers": ["freezer", "thawer"],
     "gears": ["cw gear", "ccw gear", "jam"],
+    "mirrors": ["mirror"],
 }
 
 categories = {
@@ -111,7 +120,7 @@ categories = {
     "Movers": [subcategories["movers"], images["mover"]],
     "Recreators": [subcategories["generators"], images["generator"]],
     "Rotators": [subcategories["rotators"], subcategories["redirectors"], subcategories["gears"], images["cw 90 rotator"]],
-    "Forcers": [subcategories["gears"], images["cw gear"]],
+    "Forcers": [subcategories["gears"], subcategories["mirrors"], images["mirror"]],
     "Destroyers": [subcategories["trashes"], subcategories["enemies"], images["trash"]],
     "Divergers": [subcategories["divergers"], images["curve diverger"]],
     "Other": [subcategories["effect givers"], images["freezer"]],
@@ -306,14 +315,33 @@ def step_sim(b):
         return
     stepping = True
     lerp = 0
-    sim_running = False
-    sim_button.image = images["mover"]
-    grid.update_cells()
+    if sim_running:
+        toggle_sim(sim_button)
+    tick()
+
+def save_state(b):
+    global saved, load_state_button
+    saved = deepcopy(grid.grid)
+    b.enabled = False
+    load_state_button.enabled = False
+
+def load_state(b):
+    global saved, grid, save_state_button, sim_running, sim_button, lerp
+    if sim_running:
+        toggle_sim(sim_button)
+    lerp = 1
+    grid.grid = deepcopy(saved)
+    b.enabled = False
+    save_state_button.enabled = False
 
 sim_button = ui.ImageButton(20, 20, 70, 70, images["mover"], toggle_sim)
 add_ui(sim_button, ["Simulation Button"])
 step_button = ui.ImageButton(95, 20, 70, 70, images["nudger"], step_sim)
 add_ui(step_button, ["Simulation Button"])
+save_state_button = ui.ImageButton(20, 95, 70, 70, images["generator"], save_state, enabled=False)
+add_ui(save_state_button, ["Simulation Button"])
+load_state_button = ui.ImageButton(95, 95, 70, 70, images["180 rotator"], load_state, enabled=False)
+add_ui(load_state_button, ["Simulation Button"])
 
 update_ui_elements()
 
@@ -422,6 +450,13 @@ def reset_cells():
                 if effect not in perm_effects:
                     setattr(cell.effects, effect, False)
 
+def tick():
+    global saved
+    if saved is None:
+        saved = deepcopy(grid.grid)
+    grid.update_cells()
+    save_state_button.enabled = True
+    load_state_button.enabled = True
 
 dt = 0
 while running:
@@ -433,7 +468,7 @@ while running:
         stepping = False
         reset_cells()
         if sim_running:
-            grid.update_cells()
+            tick()
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
