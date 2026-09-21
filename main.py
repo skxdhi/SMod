@@ -15,19 +15,22 @@ def resource_path(relative_path):
 
 
 pygame.init()
-SCREEN_WIDTH = 800
-SCREEN_HEIGHT = 600
-screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.RESIZABLE)
+monitor_info = pygame.display.Info()
+SCREEN_WIDTH = monitor_info.current_w
+SCREEN_HEIGHT = monitor_info.current_h
+screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.FULLSCREEN | pygame.SCALED)
 running = True
 pygame.font.init()
 font = pygame.font.Font(resource_path("Jersey10-Regular.ttf"), 32)
 small_font = pygame.font.Font(resource_path("Jersey10-Regular.ttf"), 20)
 
 fancy_graphics = True
+menu = "Main Menu"
 
 import ui
 
-UI = ui.UI([])
+GameUI = ui.UI([])
+MainMenuUI = ui.UI([])
 
 from loader import images, audio
 import cells
@@ -37,6 +40,8 @@ saved = None
 Cell = cells.Cell
 pygame.display.set_caption("Cell Machine SMod")
 pygame.display.set_icon(pygame.image.load(resource_path("icon.ico")).convert_alpha())
+title_logo = pygame.image.load(resource_path("SMod_Logo.png")).convert_alpha()
+title_logo = pygame.transform.scale(title_logo, (600, 600 * title_logo.get_height()/title_logo.get_width()))
 clock = pygame.time.Clock()
 
 cell_size = 32
@@ -147,9 +152,12 @@ def play_sound(sound_name):
 # UI
 # =================================================
 
-def add_ui(element, tag=None):
+def add_ui(element, tag=None, menu="Game"):
     setattr(element, "tag", tag)
-    UI.elements.append(element)
+    if menu == "Game":
+        GameUI.elements.append(element)
+    if menu == "Main Menu":
+        MainMenuUI.elements.append(element)
 
 
 def select_cell(b, c):
@@ -174,7 +182,7 @@ subcat_positions = {}
 
 def update_category_buttons():
     global cat_positions
-    UI.clear("Category Button", "Subcategory Button", "Cell Button")
+    GameUI.clear("Category Button", "Subcategory Button", "Cell Button")
     cat_positions = {}
     for i, (cat_name, cat_data) in enumerate(categories.items()):
         cat_icon = cat_data[-1]
@@ -186,7 +194,7 @@ def update_category_buttons():
 
 def update_subcategory_buttons():
     global subcat_positions
-    UI.clear("Subcategory Button", "Cell Button")
+    GameUI.clear("Subcategory Button", "Cell Button")
     subcat_positions = {}
     if current_category in categories:
         cat_data = categories[current_category]
@@ -206,7 +214,7 @@ def update_subcategory_buttons():
                        ["Subcategory Button", format_text(subcat_name)])
 
 def update_cell_buttons():
-    UI.clear("Cell Button")
+    GameUI.clear("Cell Button")
     if current_subcategory and current_subcategory in subcategories:
         cell_list = subcategories[current_subcategory]
         for k, cell_name in enumerate(cell_list):
@@ -239,7 +247,7 @@ def wrap_text(text, threshold):
 
 def draw_infobox():
     mouse_x, mouse_y = pygame.mouse.get_pos()
-    btn_hovering = UI.hover()
+    btn_hovering = GameUI.hover()
 
     if btn_hovering is not None and btn_hovering.tag[0] == "Cell Button":
         desc = celltypes[(btn_hovering.tag[1]).lower()]["desc"]
@@ -274,9 +282,28 @@ def draw_infobox():
 
 def draw_cate_infobox():
     mouse_x, mouse_y = pygame.mouse.get_pos()
-    btn_hovering = UI.hover()
+    btn_hovering = GameUI.hover()
 
     if btn_hovering is not None and btn_hovering.tag[0] in ["Category Button", "Subcategory Button"]:
+        title_text = font.render(btn_hovering.tag[1], True, (255,) * 3)
+
+        w = max(title_text.get_width() + 20, 150)
+        h = max(title_text.get_height() + 15, 50)
+
+        mouse_y = min(mouse_y, screen.get_height() - h)
+        mouse_x = min(mouse_x, screen.get_width() - w)
+
+        box_rect = pygame.Rect(mouse_x, mouse_y, w, h)
+        pygame.draw.rect(screen, (80,) * 3, box_rect)
+        pygame.draw.rect(screen, (60,) * 3, box_rect, width=5)
+
+        screen.blit(title_text, (mouse_x + 10, mouse_y + 5))
+
+def draw_main_infobox():
+    mouse_x, mouse_y = pygame.mouse.get_pos()
+    btn_hovering = MainMenuUI.hover()
+
+    if btn_hovering is not None and btn_hovering.tag[0] in ["Main Menu"]:
         title_text = font.render(btn_hovering.tag[1], True, (255,) * 3)
 
         w = max(title_text.get_width() + 20, 150)
@@ -345,6 +372,27 @@ add_ui(load_state_button, ["Simulation Button"])
 
 update_ui_elements()
 
+def go_to_game(b):
+    global menu, grid
+    menu = "Game"
+    for x in range(grid.width):
+        for y in range(grid.height):
+            if x == 0 or y == 0 or x == grid.width - 1 or y == grid.height - 1:
+                grid[x, y] = Cell(0, "ghost")
+
+def quit_app(b):
+    global running
+    running = False
+
+def go_to_credits(b):
+    pass
+
+play_button = ui.ImageButton(500, 240, 150, 150, images["mover"], go_to_game, anchor="right-bottom")
+add_ui(play_button, ["Main Menu", "Play"], menu="Main Menu")
+quit_button = ui.ImageButton(40, 40, 150, 150, images["trash"], quit_app, anchor="right-bottom")
+add_ui(quit_button, ["Main Menu", "Quit"], menu="Main Menu")
+credits_button = ui.ImageButton(500, 40, 150, 150, images["push"], go_to_credits, anchor="right-bottom")
+add_ui(credits_button, ["Main Menu", "Credits"], menu="Main Menu")
 
 # =================================================
 # DRAWING
@@ -469,6 +517,8 @@ while running:
         reset_cells()
         if sim_running:
             tick()
+    if menu == "Main Menu":
+        lerp = 1
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
@@ -476,63 +526,80 @@ while running:
         if event.type == pygame.VIDEORESIZE:
             SCREEN_WIDTH, SCREEN_HEIGHT = event.size
         if event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_e:
-                selected_cell["direction"] += 1
-                selected_cell["direction"] %= 4
-            if event.key == pygame.K_q:
-                selected_cell["direction"] += -1
-                selected_cell["direction"] %= 4
-            if event.key == pygame.K_r:
-                selected_cell["direction"] -= 0.5
-                selected_cell["direction"] %= 4
-            if event.key == pygame.K_t:
-                selected_cell["direction"] += 0.5
-                selected_cell["direction"] %= 4
-            if event.key == pygame.K_SPACE:
-                toggle_sim(sim_button)
-            if event.key == pygame.K_f:
-                step_sim(step_button)
+            if menu == "Game":
+                if event.key == pygame.K_e:
+                    selected_cell["direction"] += 1
+                    selected_cell["direction"] %= 4
+                if event.key == pygame.K_q:
+                    selected_cell["direction"] += -1
+                    selected_cell["direction"] %= 4
+                if event.key == pygame.K_r:
+                    selected_cell["direction"] -= 0.5
+                    selected_cell["direction"] %= 4
+                if event.key == pygame.K_t:
+                    selected_cell["direction"] += 0.5
+                    selected_cell["direction"] %= 4
+                if event.key == pygame.K_SPACE:
+                    toggle_sim(sim_button)
+                if event.key == pygame.K_f:
+                    step_sim(step_button)
         if event.type == pygame.MOUSEBUTTONDOWN:
             if event.button in (4, 5):
-                old_cell_size = cell_size
-                if event.button == 4:
-                    cell_size = min(128, cell_size + 4)
-                elif event.button == 5:
-                    cell_size = max(8, cell_size - 4)
+                if menu == "Game":
+                    old_cell_size = cell_size
+                    if event.button == 4:
+                        cell_size = min(128, cell_size + 4)
+                    elif event.button == 5:
+                        cell_size = max(8, cell_size - 4)
 
-                world_m_x = mouse_pos[0] + camera_x
-                world_m_y = mouse_pos[1] + camera_y
-                camera_x = (world_m_x * cell_size // old_cell_size) - mouse_pos[0]
-                camera_y = (world_m_y * cell_size // old_cell_size) - mouse_pos[1]
+                    world_m_x = mouse_pos[0] + camera_x
+                    world_m_y = mouse_pos[1] + camera_y
+                    camera_x = (world_m_x * cell_size // old_cell_size) - mouse_pos[0]
+                    camera_y = (world_m_y * cell_size // old_cell_size) - mouse_pos[1]
         if event.type == pygame.MOUSEBUTTONUP:
             if event.button not in (4, 5):
-                UI.click()
+                if menu == "Game":
+                    GameUI.click()
+                elif menu == "Main Menu":
+                    MainMenuUI.click()
     mouse_buttons = pygame.mouse.get_pressed()
-    if mouse_buttons[0] and not UI.hover():
-        place_cell(mx, my, selected_cell["direction"], selected_cell["name"])
-    if mouse_buttons[2] and not UI.hover():
-        delete_cell(mx, my)
-    for x in range(grid.width):
-        for y in range(grid.height):
-            if x == 0 or y == 0 or x == grid.width - 1 or y == grid.height - 1:
-                grid[x, y] = Cell(0, "ghost")
-    key_buttons = pygame.key.get_pressed()
-    cam_speed = 60 * dt * 5
-    if key_buttons[pygame.K_w]:
-        camera_y -= cam_speed
-    if key_buttons[pygame.K_s]:
-        camera_y += cam_speed
-    if key_buttons[pygame.K_d]:
-        camera_x += cam_speed
-    if key_buttons[pygame.K_a]:
-        camera_x -= cam_speed
-    screen.fill((20,) * 3)
-    draw_grid()
-    draw_ghost_cell(mx, my, selected_cell["direction"], selected_cell["name"])
-    UI.draw()
-    draw_infobox()
-    draw_cate_infobox()
-    UI.update_animation(dt)
+    if menu == "Game":
+        if mouse_buttons[0] and not GameUI.hover():
+            place_cell(mx, my, selected_cell["direction"], selected_cell["name"])
+            for x in range(grid.width):
+                for y in range(grid.height):
+                    if x == 0 or y == 0 or x == grid.width - 1 or y == grid.height - 1:
+                        grid[x, y] = Cell(0, "ghost")
+        if mouse_buttons[2] and not GameUI.hover():
+            delete_cell(mx, my)
+            for x in range(grid.width):
+                for y in range(grid.height):
+                    if x == 0 or y == 0 or x == grid.width - 1 or y == grid.height - 1:
+                        grid[x, y] = Cell(0, "ghost")
+        key_buttons = pygame.key.get_pressed()
+        cam_speed = 60 * dt * 5
+        if key_buttons[pygame.K_w]:
+            camera_y -= cam_speed
+        if key_buttons[pygame.K_s]:
+            camera_y += cam_speed
+        if key_buttons[pygame.K_d]:
+            camera_x += cam_speed
+        if key_buttons[pygame.K_a]:
+            camera_x -= cam_speed
+    screen.fill((0,) * 3)
+    if menu == "Game":
+        screen.fill((20,) * 3)
+        draw_grid()
+        draw_ghost_cell(mx, my, selected_cell["direction"], selected_cell["name"])
+        GameUI.draw()
+        draw_infobox()
+        draw_cate_infobox()
+        GameUI.update_animation(dt)
+    if menu == "Main Menu":
+        screen.fill((30,) * 3)
+        MainMenuUI.draw()
+        screen.blit(title_logo, (SCREEN_WIDTH-40-title_logo.get_width(), 40+math.sin(pygame.time.get_ticks()/500)*10))
+        draw_main_infobox()
     pygame.display.flip()
     dt = clock.tick(60) / 1000
 pygame.quit()
