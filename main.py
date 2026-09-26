@@ -2,8 +2,11 @@ import math
 import os
 import sys
 import textwrap
-import copy
 from copy import deepcopy
+import base64
+import json
+import zlib
+from utils import compose
 
 import pygame
 
@@ -15,6 +18,7 @@ def resource_path(relative_path):
 
 
 pygame.init()
+pygame.mixer.init()
 monitor_info = pygame.display.Info()
 SCREEN_WIDTH = monitor_info.current_w
 SCREEN_HEIGHT = monitor_info.current_h
@@ -101,6 +105,10 @@ celltypes = {
     "lichen": {"desc": "Splits like a Hydra when a cell attempts to push it. (VERY BUGGY)"},
     "skidhi 90": {"desc": "ITS ME!!! Rotates the cell in front of it and the cell behind it."},
     "mirror": {"desc": "Swaps the two cells it is pointing to."},
+    "ungeneratable": {"desc": "When this cell is being generated it instead makes the generator create air."},
+    "obtuse curve diverger": {"desc": "Bends the path of cells that go/look through it by 135 degrees."},
+    "acute curve diverger": {"desc": "Bends the path of cells that go/look through it by 45 degrees."},
+    "monogeneratable": {"desc": "When this cell is being generated it instead makes the generator create an Ungeneratable."},
 }
 
 subcategories = {
@@ -110,10 +118,11 @@ subcategories = {
     "weights": ["weight", "anti weight", "bias", "gold", "lead"],
     "rotators": ["cw 90 rotator", "cw 45 rotator", "cw 135 rotator", "ccw 90 rotator", "ccw 45 rotator", "ccw 135 rotator", "random 90 rotator", "random 45 rotator", "random 135 rotator", "180 rotator"],
     "generators": ["generator", "cw generator", "ccw generator"],
+    "generatables": ["ungeneratable", "monogeneratable"],
     "walls": ["wall", "ghost"],
     "trashes": ["trash", "squish trash"],
     "enemies": ["enemy", "squish enemy"],
-    "divergers": ["curve diverger", "bicurve diverger", "straight diverger", "bistraight diverger", "diode diverger"],
+    "divergers": ["curve diverger", "acute curve diverger", "obtuse curve diverger", "bicurve diverger", "straight diverger", "bistraight diverger", "diode diverger"],
     "redirectors": ["redirector"],
     "effect givers": ["freezer", "thawer"],
     "gears": ["cw gear", "ccw gear", "jam"],
@@ -123,7 +132,7 @@ subcategories = {
 categories = {
     "Base": [subcategories["pushables"], subcategories["weights"], subcategories["walls"], images["push"]],
     "Movers": [subcategories["movers"], images["mover"]],
-    "Recreators": [subcategories["generators"], images["generator"]],
+    "Recreators": [subcategories["generators"], subcategories["generatables"], images["generator"]],
     "Rotators": [subcategories["rotators"], subcategories["redirectors"], subcategories["gears"], images["cw 90 rotator"]],
     "Forcers": [subcategories["gears"], subcategories["mirrors"], images["mirror"]],
     "Destroyers": [subcategories["trashes"], subcategories["enemies"], images["trash"]],
@@ -146,7 +155,6 @@ current_subcategory = None
 
 def play_sound(sound_name):
     audio[sound_name].play()
-
 
 # =================================================
 # UI
@@ -367,7 +375,7 @@ step_button = ui.ImageButton(95, 20, 70, 70, images["nudger"], step_sim)
 add_ui(step_button, ["Simulation Button"])
 save_state_button = ui.ImageButton(20, 95, 70, 70, images["generator"], save_state, enabled=False)
 add_ui(save_state_button, ["Simulation Button"])
-load_state_button = ui.ImageButton(95, 95, 70, 70, images["180 rotator"], load_state, enabled=False)
+load_state_button = ui.ImageButton(95, 95, 70, 70, images["180 rotator"], compose(lambda x: play_sound("click"), load_state), enabled=False)
 add_ui(load_state_button, ["Simulation Button"])
 
 update_ui_elements()
@@ -387,11 +395,11 @@ def quit_app(b):
 def go_to_credits(b):
     pass
 
-play_button = ui.ImageButton(500, 240, 150, 150, images["mover"], go_to_game, anchor="right-bottom")
+play_button = ui.ImageButton(500, 240, 150, 150, images["mover"], compose(lambda x: play_sound("click"), go_to_game), anchor="left-bottom")
 add_ui(play_button, ["Main Menu", "Play"], menu="Main Menu")
-quit_button = ui.ImageButton(40, 40, 150, 150, images["trash"], quit_app, anchor="right-bottom")
+quit_button = ui.ImageButton(500, 40, 150, 150, images["trash"], quit_app, anchor="right-bottom")
 add_ui(quit_button, ["Main Menu", "Quit"], menu="Main Menu")
-credits_button = ui.ImageButton(500, 40, 150, 150, images["push"], go_to_credits, anchor="right-bottom")
+credits_button = ui.ImageButton(500, 40, 150, 150, images["push"], compose(lambda x: play_sound("click"), go_to_credits), anchor="left-bottom")
 add_ui(credits_button, ["Main Menu", "Credits"], menu="Main Menu")
 
 # =================================================
@@ -403,12 +411,14 @@ def lerpp(s, e, t):
     if s is None: return e
     return s + t * (e - s)
 
-def lerp_angle(s, e, t):
-    if s is None:
-        return e
 
-    difference = (e - s + 2) % 4 - 2
-    return s + difference * t
+def lerp_angle(s, e, t):
+    if not fancy_graphics: return e
+    if s is None: return e
+    diff = e - s
+    diff = (diff + 2) % 4 - 2
+    return s + diff * t
+
 
 def draw_cell(x, y, direction, name, flags=None):
     screen_x = int((x * cell_size) - camera_x)
@@ -462,10 +472,13 @@ def draw_grid():
     for cell, trashpos in grid.eaten:
         if cell is None: continue
         draw_cell(lerpp(cell.oldx, trashpos[0], lerp), lerpp(cell.oldy, trashpos[1], lerp),
-                  lerpp(cell.olddirection, cell.direction, lerp), cell.name, flags={"eaten": True})
+                  lerp_angle(cell.olddirection, cell._direction, lerp), cell.name, flags={"eaten": True})
     for x, y, cell in grid:
         if cell is None: continue
-        draw_cell(lerpp(cell.oldx, x, lerp), lerpp(cell.oldy, y, lerp), lerp_angle(cell.olddirection, cell.direction, lerp),
+        for eaten in cell.eaten:
+            draw_cell(lerpp(eaten.oldx, x, lerp), lerpp(eaten.oldy, y, lerp),
+                      lerp_angle(eaten.olddirection, eaten._direction, lerp), eaten.name, flags={"eaten": True})
+        draw_cell(lerpp(cell.oldx, x, lerp), lerpp(cell.oldy, y, lerp), lerp_angle(cell.olddirection, cell._direction, lerp),
                   cell.name)
         for effect in vars(cell.effects):
             if not getattr(cell.effects, effect): continue
@@ -477,6 +490,56 @@ def draw_grid():
 # =================================================
 # RUNTIME
 # =================================================
+
+def save_code():
+    code = []
+    code_type = "S1"
+    cell_type_list = list(celltypes.keys())
+
+    for x, y, cell in grid:
+        if cell is None:
+            continue
+
+        pos = x + (y * grid.width)
+        cell_id = cell_type_list.index(cell.name)
+
+        state = vars(cell).copy()
+        state["name"] = cell_id
+        state["effects"] = vars(cell.effects)
+
+        code.append([pos, state])
+
+    json_str = json.dumps(code, separators=(',', ':'))
+    compressed = zlib.compress(json_str.encode('utf-8'))
+    b64_str = base64.b64encode(compressed).decode('utf-8')
+
+    return f"{code_type};{b64_str}"
+
+
+def load_code(save_string):
+    parts = save_string.split(";")
+    b64_str = parts[1]
+    cell_type_list = list(celltypes.keys())
+
+    compressed = base64.b64decode(b64_str.encode('utf-8'))
+    json_str = zlib.decompress(compressed).decode('utf-8')
+    code_data = json.loads(json_str)
+
+    for pos, state in code_data:
+        x = pos % grid.width
+        y = pos // grid.width
+
+        state["name"] = cell_type_list[state["name"]]
+        effects_data = state.pop("effects")
+
+        loaded_cell = Cell(direction=state["direction"], name=state["name"])
+
+        for key, value in state.items():
+            setattr(loaded_cell, key, value)
+
+        loaded_cell.effects = cells.EffectList(effects_data)
+        grid[x, y] = loaded_cell
+
 
 def place_cell(x, y, direction, name):
     if 0 <= x < grid.width and 0 <= y < grid.height:
@@ -493,7 +556,10 @@ def reset_cells():
     perm_effects = []
     for x, y, cell in grid:
         if cell is not None:
-            cell.oldx, cell.oldy, cell.olddirection, cell.updated = x, y, cell.direction, False
+            cell.oldx, cell.oldy = x, y
+            cell.olddirection = cell._direction % 4
+            cell._direction = cell._direction % 4
+            cell.updated = False
             for effect in vars(cell.effects):
                 if effect not in perm_effects:
                     setattr(cell.effects, effect, False)
@@ -598,7 +664,7 @@ while running:
     if menu == "Main Menu":
         screen.fill((30,) * 3)
         MainMenuUI.draw()
-        screen.blit(title_logo, (SCREEN_WIDTH-40-title_logo.get_width(), 40+math.sin(pygame.time.get_ticks()/500)*10))
+        screen.blit(title_logo, ((SCREEN_WIDTH-title_logo.get_width())//2+20, 40+math.sin(pygame.time.get_ticks()/500)*10))
         draw_main_infobox()
     pygame.display.flip()
     dt = clock.tick(60) / 1000
