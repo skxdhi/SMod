@@ -52,7 +52,6 @@ class ButtonTemplate:
         self.anchor = anchor.lower()
         self.enabled = enabled
         self.anim_progress = 0.0
-        # Treated as a relative offset from the anchor target position
         self.anim_start_pos = anim_start_pos if anim_start_pos else (0, 0)
 
     @property
@@ -98,6 +97,8 @@ class ButtonTemplate:
             self.anim_progress = min(1.0, self.anim_progress + dt * 8.0)
 
     def click(self):
+        if not self.enabled:
+            return
         self.func(self)
 
     def hover(self):
@@ -114,12 +115,44 @@ class ImageButton(ButtonTemplate):
         self.image = image
 
     def draw(self):
+        if not self.enabled: return
         current_w = int(self.width)
         current_h = int(self.height)
 
         surf = self.image.copy()
         surf = pygame.transform.scale(surf, (max(1, current_w), max(1, current_h)))
+        surf.set_alpha(210)
+        if self.hover():
+            surf.set_alpha(250)
 
         draw_x = self.x + (self.width - current_w) // 2
         draw_y = self.y + (self.height - current_h) // 2
         screen.blit(surf, (draw_x, draw_y))
+
+
+class TextButton(ButtonTemplate):
+    def __init__(self, x, y, width, height, text, font, func, anchor="top-left", enabled=True, anim_start_pos=None,
+                 text_color=(255, 255, 255), bg_color=(80, 80, 80), hover_bg_color=(100, 100, 100)):
+        super().__init__(x, y, width, height, func, anchor, enabled, anim_start_pos)
+        self.text = text
+        self.font = font
+        self.text_color = text_color
+        self.bg_color = bg_color
+        self.hover_bg_color = hover_bg_color
+
+    def draw(self):
+        if not self.enabled:
+            return
+
+        current_w = int(self.width)
+        current_h = int(self.height)
+
+        current_bg = self.hover_bg_color if self.hover() else self.bg_color
+
+        rect = pygame.Rect(int(self.x), int(self.y), current_w, current_h)
+        pygame.draw.rect(screen, current_bg, rect)
+        pygame.draw.rect(screen, (50, 50, 50), rect, width=2)
+
+        text_surf = self.font.render(self.text, True, self.text_color)
+        text_rect = text_surf.get_rect(center=rect.center)
+        screen.blit(text_surf, text_rect)
