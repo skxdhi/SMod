@@ -27,6 +27,7 @@ running = True
 pygame.font.init()
 font = pygame.font.Font(resource_path("Jersey10-Regular.ttf"), 32)
 small_font = pygame.font.Font(resource_path("Jersey10-Regular.ttf"), 20)
+very_big_font = pygame.font.Font(resource_path("Jersey10-Regular.ttf"), 300)
 
 fancy_graphics = True
 menu = "Main Menu"
@@ -35,6 +36,10 @@ import ui
 
 GameUI = ui.UI([])
 MainMenuUI = ui.UI([])
+AdjMenuUI = ui.UI([])
+
+adj_overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+adj_overlay.fill((80,)*4)
 
 from loader import images, audio
 import cells
@@ -54,6 +59,11 @@ selected_cell = {
     "name": "mover",
     "direction": 0,
 }
+place_type = "place"
+
+adj_menu_name = None
+selected_adj_index = 0
+adj_text_input = None
 
 celltypes = {
     "mover": {"desc": "Moves one space per tick in the direction it is pointing, pushing the cells in its way."},
@@ -62,7 +72,7 @@ celltypes = {
     "two directional": {"desc": "Can ony be pushed on the indicated sides."},
     "slide": {"desc": "Can only be pushed on the indicated sides."},
     "three directional": {"desc": "Can ony be pushed on the indicated sides."},
-    "zero directional": {"desc": "Can ony be pushed on the indicated sides, except there is no indicated sides."},
+    "zero directional": {"desc": "Can ony be pushed on the indicated sides, except there are no indicated sides."},
     "random push": {"desc": "A Push cell that has a 1/2 chance to not be movable."},
     "cw 90 rotator": {"desc": "Rotates neighboring cells 90 degrees clockwise."},
     "ccw 90 rotator": {"desc": "Rotates neighboring cells 90 degrees counterclockwise."},
@@ -100,7 +110,6 @@ celltypes = {
     "random 135 rotator": {"desc": "Rotates neighboring cells 135 degrees either clockwise or counterclockwise."},
     "squish trash": {"desc": "A Trash that needs to be pushed against a wall to delete cells."},
     "squish enemy": {"desc": "An Enemy that needs to be pushed against a wall to delete cells."},
-    "puller": {"desc": "A Mover that moves the line of cells behind it instead of in front of it; Stops if there is a cell in its way."},
     "hydra": {"desc": "A Mover that splits perpendicularly when it hits a wall, if it can."},
     "lichen": {"desc": "Splits like a Hydra when a cell attempts to push it. (VERY BUGGY)"},
     "skidhi 90": {"desc": "ITS ME!!! Rotates the cell in front of it and the cell behind it."},
@@ -109,35 +118,74 @@ celltypes = {
     "obtuse curve diverger": {"desc": "Bends the path of cells that go/look through it by 135 degrees."},
     "acute curve diverger": {"desc": "Bends the path of cells that go/look through it by 45 degrees."},
     "monogeneratable": {"desc": "When this cell is being generated it instead makes the generator create an Ungeneratable."},
+    "gyro": {"desc": "Acts like a Gear depending on how much its rotated by."},
+    "arrow": {"desc": "A Push that cannot be rotated."},
+    "helix": {"desc": "An Arrow that moves forward when its rotated."},
+    "storage": {"desc": "Stores the cell that moves into it, if it already has a cell it will push it out on the opposite side."},
+    "repulsor": {"desc": "Pushes neighboring cells away from it."},
+    "slow mover": {"desc": "A Mover that moves every other tick."},
+    "adj test": {"desc": "test"},
+    "jump trash": {"desc": "A Trash that moves away from cells it eats."},
+    "self": {"desc": "When a storage like cell hold this cell, it makes it hold a copy of itself instead."},
+    "texter": {"desc": "Change the cells Text parameter to display text."},
+    #"coin": {"desc": "When cells collect it, they get 1 coin added to their coin count. Yes, a form of currency in Cell Machine."},
+    "void": {"desc": "When a storage like cell hold this cell, it makes it hold air instead."},
+    "winter": {"desc": "Freezes the entire grid."},
+    "summer": {"desc": "Thaws the entire grid."},
+    "puller": {"desc": "A Mover that moves the row behind it forwards instead of the row in front of it; Stops if there is a cell in the way."},
 }
 
 subcategories = {
-    "movers": ["mover", "skidhi 90", "leaper", "hydra"],
+    "movers": ["mover", "slow mover", "helix", "skidhi 90", "leaper", "hydra"],
+    "pullers": ["puller"],
     "pushables": ["push", "zero directional", "one directional", "two directional", "slide", "three directional",
-                  "random push", "lichen"],
+                  "random push", "arrow", "helix", "lichen"],
     "weights": ["weight", "anti weight", "bias", "gold", "lead"],
-    "rotators": ["cw 90 rotator", "cw 45 rotator", "cw 135 rotator", "ccw 90 rotator", "ccw 45 rotator", "ccw 135 rotator", "random 90 rotator", "random 45 rotator", "random 135 rotator", "180 rotator"],
+    "rotators": ["cw 90 rotator", "cw 45 rotator", "cw 135 rotator", "ccw 90 rotator", "ccw 45 rotator",
+                 "ccw 135 rotator", "random 90 rotator", "random 45 rotator", "random 135 rotator", "180 rotator"],
     "generators": ["generator", "cw generator", "ccw generator"],
     "generatables": ["ungeneratable", "monogeneratable"],
     "walls": ["wall", "ghost"],
-    "trashes": ["trash", "squish trash"],
+    "trashes": ["trash", "squish trash", "jump trash"],
     "enemies": ["enemy", "squish enemy"],
-    "divergers": ["curve diverger", "acute curve diverger", "obtuse curve diverger", "bicurve diverger", "straight diverger", "bistraight diverger", "diode diverger"],
+    "divergers": ["curve diverger", "acute curve diverger", "obtuse curve diverger", "bicurve diverger",
+                  "straight diverger", "bistraight diverger", "diode diverger"],
     "redirectors": ["redirector"],
-    "effect givers": ["freezer", "thawer"],
-    "gears": ["cw gear", "ccw gear", "jam"],
+    "freezers": ["freezer", "winter", "thawer", "summer"],
+    "gears": ["cw gear", "ccw gear", "gyro", "jam"],
     "mirrors": ["mirror"],
+    "storing": ["storage", "self", "void"],
+    "repulsors": ["repulsor"],
+    "other": ["texter"],
 }
 
 categories = {
     "Base": [subcategories["pushables"], subcategories["weights"], subcategories["walls"], images["push"]],
-    "Movers": [subcategories["movers"], images["mover"]],
-    "Recreators": [subcategories["generators"], subcategories["generatables"], images["generator"]],
+    "Movers": [subcategories["movers"], subcategories["pullers"], images["mover"]],
+    "Recreation": [subcategories["generators"], subcategories["generatables"], images["generator"]],
     "Rotators": [subcategories["rotators"], subcategories["redirectors"], subcategories["gears"], images["cw 90 rotator"]],
-    "Forcers": [subcategories["gears"], subcategories["mirrors"], images["mirror"]],
+    "Forcers": [subcategories["repulsors"], subcategories["gears"], subcategories["mirrors"], images["mirror"]],
     "Destroyers": [subcategories["trashes"], subcategories["enemies"], images["trash"]],
     "Divergers": [subcategories["divergers"], images["curve diverger"]],
-    "Other": [subcategories["effect givers"], images["freezer"]],
+    "Effect Givers": [subcategories["freezers"], images["freezer"]],
+    "Other": [subcategories["storing"], subcategories["other"], images["void"]],
+}
+
+def make_adj_element(type, current_val, name=None):
+    return {"name": name or type, "type": type, "current_val": current_val}
+
+adjustables = {
+    "adj test": [
+        make_adj_element("Float", 0),
+        make_adj_element("Integer", 0),
+        make_adj_element("Direction", 0),
+        make_adj_element("Rotation", "CW"),
+        make_adj_element("String", ""),
+        make_adj_element("Boolean", True),
+    ],
+    "texter": [
+        make_adj_element("String", "", "Text"),
+    ]
 }
 
 lerp = 0
@@ -149,16 +197,8 @@ camera_x, camera_y = 0, 0
 current_category = None
 current_subcategory = None
 
-# =================================================
-# AUDIO
-# =================================================
-
 def play_sound(sound_name):
     audio[sound_name].play()
-
-# =================================================
-# UI
-# =================================================
 
 def add_ui(element, tag=None, menu="Game"):
     setattr(element, "tag", tag)
@@ -166,6 +206,8 @@ def add_ui(element, tag=None, menu="Game"):
         GameUI.elements.append(element)
     if menu == "Main Menu":
         MainMenuUI.elements.append(element)
+    if menu == "Adj":
+        AdjMenuUI.elements.append(element)
 
 
 def select_cell(b, c):
@@ -326,6 +368,206 @@ def draw_main_infobox():
 
         screen.blit(title_text, (mouse_x + 10, mouse_y + 5))
 
+def close_adj_menu(b):
+    global adj_menu_name, selected_adj_index, adj_text_input
+    if adj_text_input and adj_text_input.active:
+        adj_text_input.deactivate(confirm=False)
+    adj_menu_name = None
+    selected_adj_index = 0
+    adj_text_input = None
+    rebuild_adj_menu()
+
+adj_close = ui.ImageButton(100, 100, 50, 50, images["close"], close_adj_menu, anchor="right")
+add_ui(adj_close, menu="Adj")
+
+def on_adj_value_confirm(text):
+    global selected_adj_index
+    if adj_menu_name is None:
+        return
+    elems = adjustables.get(adj_menu_name)
+    if not elems or selected_adj_index >= len(elems):
+        return
+    elem = elems[selected_adj_index]
+    t = elem["type"]
+    try:
+        if t == "Integer":
+            elem["current_val"] = int(float(text)) if text.strip() not in ("", "-", ".") else 0
+        elif t == "Float":
+            elem["current_val"] = float(text) if text.strip() not in ("", "-", ".") else 0.0
+        elif t == "String":
+            elem["current_val"] = text
+    except ValueError:
+        pass
+    if adj_text_input is not None:
+        if t == "Integer":
+            adj_text_input.text = str(int(elem["current_val"]))
+        elif t == "Float":
+            adj_text_input.text = str(float(elem["current_val"]))
+
+def select_adj_option(b, idx):
+    global selected_adj_index, adj_text_input
+    if adj_text_input and adj_text_input.active:
+        adj_text_input.deactivate(confirm=True)
+    selected_adj_index = idx
+    rebuild_adj_menu()
+
+def rebuild_adj_menu():
+    global selected_adj_index, adj_text_input
+    AdjMenuUI.clear()
+    add_ui(adj_close, menu="Adj")
+    adj_text_input = None
+    if adj_menu_name is None:
+        return
+
+    elems = adjustables.get(adj_menu_name, [])
+    if not elems:
+        return
+
+    if selected_adj_index < 0 or selected_adj_index >= len(elems):
+        selected_adj_index = 0
+
+    panel_x = 80
+    panel_y = 80
+    divider_x = 360
+    row_h = 55
+    start_y = panel_y + 70
+    left_w = divider_x - panel_x - 40
+
+    for i, elem in enumerate(elems):
+        row_y = start_y + i * row_h
+        is_selected = (i == selected_adj_index)
+        bg = (110, 110, 110) if is_selected else (60, 60, 60)
+        hover_bg = (120, 120, 120) if is_selected else (80, 80, 80)
+        border = (70, 70, 70) if is_selected else (50, 50, 50)
+        opt_btn = ui.TextButton(
+            panel_x + 15, row_y - 5, left_w, row_h - 8,
+            elem["name"],
+            font if is_selected else small_font,
+            lambda b, idx=i: select_adj_option(b, idx),
+            anchor="top-left",
+            bg_color=bg,
+            hover_bg_color=hover_bg,
+            text_color=(255, 255, 255),
+            border_color=border,
+        )
+        add_ui(opt_btn, ["Adj Option", f"opt_{i}"], menu="Adj")
+
+    sel = elems[selected_adj_index]
+    t = sel["type"]
+    ctrl_y = start_y + 20
+    input_w, input_h = 220, 50
+    input_x = divider_x + 20
+    if t in ("Integer", "Float", "String"):
+        initial = str(int(sel["current_val"])) if t == "Integer" else (
+            str(sel["current_val"]) if t == "String" else str(float(sel["current_val"]))
+        )
+        adj_text_input = ui.TextInput(
+            input_x, ctrl_y, input_w, input_h, font,
+            initial=initial,
+            on_confirm=on_adj_value_confirm,
+            numeric=(t != "String"),
+            allow_float=(t == "Float"),
+            bg_color=(40, 40, 40),
+            active_bg=(50, 50, 70),
+            border_color=(100, 100, 100),
+            active_border=(120, 160, 220),
+        )
+        add_ui(adj_text_input, ["Adj Control", "text_input"], menu="Adj")
+
+    if t == "Direction":
+        def direction_button_click(b):
+            sel["current_val"] = (sel["current_val"] + 0.5) % 4
+            b.angle = sel["current_val"] * -90
+
+        dir_button = ui.ImageButton(
+            input_x, ctrl_y, 50, 50,
+            images["redirector"],
+            direction_button_click,
+        )
+
+        dir_button.angle = sel["current_val"] * -90
+
+        add_ui(dir_button, ["Adj Control", "button"], menu="Adj")
+
+    if t == "Rotation":
+        def get_rotation_image(value):
+            if value == "CW":
+                return images["cw 90 rotator"]
+            if value == "CCW":
+                return images["ccw 90 rotator"]
+            if value == "180":
+                return images["180 rotator"]
+            return images["random 90 rotator"]
+
+        def rotation_button_click(b):
+            options = ["CW", "CCW", "180", "Random"]
+            sel["current_val"] = options[
+                (options.index(sel["current_val"]) + 1) % len(options)
+                ]
+            b.image = pygame.transform.scale(
+                get_rotation_image(sel["current_val"]),
+                (50, 50)
+            )
+
+        rot_button = ui.ImageButton(
+            input_x, ctrl_y, 50, 50,
+            get_rotation_image(sel["current_val"]),
+            rotation_button_click,
+        )
+
+        add_ui(rot_button, ["Adj Control", "button"], menu="Adj")
+
+    if t == "Boolean":
+        def get_boolean_image(value):
+            if value:
+                return images["not close"]
+            return images["close"]
+
+        def boolean_button_click(b):
+            sel["current_val"] = not sel["current_val"]
+            b.image = pygame.transform.scale(
+                get_boolean_image(sel["current_val"]),
+                (50, 50)
+            )
+
+        bool_button = ui.ImageButton(
+            input_x, ctrl_y, 50, 50,
+            get_boolean_image(sel["current_val"]),
+            boolean_button_click,
+        )
+
+        add_ui(bool_button, ["Adj Control", "button"], menu="Adj")
+
+def draw_adjustable_menu():
+    global adj_menu_name, AdjMenuUI, selected_adj_index
+    if adj_menu_name is None:
+        AdjMenuUI.enabled = False
+        return
+    AdjMenuUI.enabled = True
+    x = 80
+    y = 80
+    w = SCREEN_WIDTH - x * 2
+    h = SCREEN_HEIGHT - y * 2
+    screen.blit(adj_overlay, (0, 0))
+    pygame.draw.rect(screen, (80,) * 3, pygame.Rect(x, y, w, h))
+    pygame.draw.rect(screen, (70,) * 3, pygame.Rect(x, y, w, h), width=10)
+    pygame.draw.rect(screen, (150,) * 3, pygame.Rect(360, 100, 5, h - 40))
+
+    title = font.render(format_text(adj_menu_name), True, (255, 255, 255))
+    screen.blit(title, (x + 20, y + 15))
+
+    elems = adjustables.get(adj_menu_name, [])
+    if not elems:
+        return
+
+    if 0 <= selected_adj_index < len(elems):
+        sel = elems[selected_adj_index]
+        t = sel["type"]
+
+        type_surf = small_font.render(f"Type: {t}", True, (180, 180, 180))
+        screen.blit(type_surf, (380, 120))
+
+rebuild_adj_menu()
 
 def update_ui_elements():
     update_category_buttons()
@@ -338,9 +580,9 @@ def toggle_sim(b):
     pause_surf = pygame.transform.rotate(images["slide"].copy(), 90)
     sim_running = not sim_running
     if sim_running:
-        b.image = pause_surf.copy()
+        b.image = pygame.transform.scale(pause_surf.copy(), (70, 70))
     else:
-        b.image = start_surf.copy()
+        b.image = pygame.transform.scale(start_surf.copy(), (70, 70))
 
 def step_sim(b):
     global stepping, sim_running, sim_button, lerp
@@ -369,6 +611,11 @@ def load_state(b):
     b.enabled = False
     save_state_button.enabled = False
 
+def to_adj_menu(b):
+    global adj_menu_name
+    adj_menu_name = selected_cell["name"].lower()
+    rebuild_adj_menu()
+
 sim_button = ui.ImageButton(20, 20, 70, 70, images["mover"], toggle_sim)
 add_ui(sim_button, ["Simulation Button"])
 step_button = ui.ImageButton(95, 20, 70, 70, images["nudger"], step_sim)
@@ -377,6 +624,8 @@ save_state_button = ui.ImageButton(20, 95, 70, 70, images["generator"], save_sta
 add_ui(save_state_button, ["Simulation Button"])
 load_state_button = ui.ImageButton(95, 95, 70, 70, images["180 rotator"], compose(lambda x: play_sound("click"), load_state), enabled=False)
 add_ui(load_state_button, ["Simulation Button"])
+adj_button = ui.ImageButton(170, 20, 70, 70, images["edit"], compose(lambda x: play_sound("click"), to_adj_menu), enabled=False)
+add_ui(adj_button, ["Simulation Button"])
 
 update_ui_elements()
 
@@ -402,10 +651,6 @@ add_ui(quit_button, ["Main Menu", "Quit"], menu="Main Menu")
 credits_button = ui.ImageButton(500, 40, 150, 150, images["push"], compose(lambda x: play_sound("click"), go_to_credits), anchor="left-bottom")
 add_ui(credits_button, ["Main Menu", "Credits"], menu="Main Menu")
 
-# =================================================
-# DRAWING
-# =================================================
-
 def lerpp(s, e, t):
     if not fancy_graphics: return e
     if s is None: return e
@@ -419,21 +664,59 @@ def lerp_angle(s, e, t):
     diff = (diff + 2) % 4 - 2
     return s + diff * t
 
+def draw_storage(x, y, direction, name, flags):
+    f = dict(flags)
+    f["raw"] = True
+    draw_cell(x, y, direction, name, f)
+    f_s = dict(flags)
+    f_s["raw"] = True
+    if flags.get("size"):
+        f_s["size"] *= 0.5
+    else:
+        f_s["size"] = 0.5
+    if grid[f_s["x"], f_s["y"]].storing_raw is not None:
+        draw_cell(x, y, grid[f_s["x"], f_s["y"]].storing_raw.direction, grid[f_s["x"], f_s["y"]].storing_raw.name, f_s)
+
+def draw_texter(x, y, direction, name, flags):
+    txt = grid[flags["x"], flags["y"]].properties["Text"]
+    f = dict(flags)
+    f["raw"] = True
+    if txt == "":
+        draw_cell(x, y, direction, name, flags=f)
+    txt = small_font.render(txt, True, (255,)*3)
+    f["source"] = txt
+    draw_cell(x, y, direction, name, flags=f)
+
+draw_funcs = {
+    "storage": draw_storage,
+    "texter": draw_texter,
+}
 
 def draw_cell(x, y, direction, name, flags=None):
+    flags = flags or {}
+    if (f:=draw_funcs.get(name)) and not flags.get("raw"):
+        return f(x, y, direction, name, flags)
     screen_x = int((x * cell_size) - camera_x)
     screen_y = int((y * cell_size) - camera_y)
 
     if (screen_x < -cell_size or screen_x > SCREEN_WIDTH or
             screen_y < -cell_size or screen_y > SCREEN_HEIGHT):
         return
-
-    flags = flags or {}
     ccell_size = cell_size
     if flags.get("eaten", False):
         ccell_size = round(cell_size * (1 - lerp))
+    if flags.get("size") is not None:
+        ccell_size = round(cell_size * flags.get("size"))
     if ccell_size <= 0: return
 
+    if flags.get("source"):
+        surf = flags["source"].copy()
+        surf = pygame.transform.smoothscale_by(surf, (cell_size/32, cell_size/32))
+        center_x = screen_x + (cell_size // 2)
+        center_y = screen_y + (cell_size // 2)
+        rect = surf.get_rect(center=(center_x, center_y))
+        screen.blit(surf, rect)
+        return
     surf = pygame.transform.scale(images[name], (ccell_size, ccell_size))
     angle = direction * -90
     surf = pygame.transform.rotate(surf, angle)
@@ -469,27 +752,22 @@ def draw_grid():
     for x, y, cell in grid:
         draw_cell(x, y, 0, "bg")
 
-    for cell, trashpos in grid.eaten:
+    for (cell, trashpos) in grid.eaten:
         if cell is None: continue
         draw_cell(lerpp(cell.oldx, trashpos[0], lerp), lerpp(cell.oldy, trashpos[1], lerp),
-                  lerp_angle(cell.olddirection, cell._direction, lerp), cell.name, flags={"eaten": True})
+                  lerp_angle(cell.olddirection, cell._direction, lerp), cell.name, flags={"eaten": True, "x": None, "y": None})
     for x, y, cell in grid:
         if cell is None: continue
         for eaten in cell.eaten:
             draw_cell(lerpp(eaten.oldx, x, lerp), lerpp(eaten.oldy, y, lerp),
-                      lerp_angle(eaten.olddirection, eaten._direction, lerp), eaten.name, flags={"eaten": True})
+                      lerp_angle(eaten.olddirection, eaten._direction, lerp), eaten.name, flags={"eaten": True, "x": None, "y": None})
         draw_cell(lerpp(cell.oldx, x, lerp), lerpp(cell.oldy, y, lerp), lerp_angle(cell.olddirection, cell._direction, lerp),
-                  cell.name)
+                  cell.name, flags={"x": x, "y": y})
         for effect in vars(cell.effects):
             if not getattr(cell.effects, effect): continue
             draw_cell(lerpp(cell.oldx, x, lerp), lerpp(cell.oldy, y, lerp),
                       0,
-                      f"effects/{effect}")
-
-
-# =================================================
-# RUNTIME
-# =================================================
+                      f"effects/{effect}", flags={"x": x, "y": y})
 
 def save_code():
     code = []
@@ -541,9 +819,9 @@ def load_code(save_string):
         grid[x, y] = loaded_cell
 
 
-def place_cell(x, y, direction, name):
+def place_cell(x, y, direction, name, properties=None):
     if 0 <= x < grid.width and 0 <= y < grid.height:
-        grid[x, y] = Cell(direction, name)
+        grid[x, y] = Cell(direction, name, properties=properties)
 
 
 def delete_cell(x, y):
@@ -560,6 +838,7 @@ def reset_cells():
             cell.olddirection = cell._direction % 4
             cell._direction = cell._direction % 4
             cell.updated = False
+            cell.eaten = []
             for effect in vars(cell.effects):
                 if effect not in perm_effects:
                     setattr(cell.effects, effect, False)
@@ -569,8 +848,13 @@ def tick():
     if saved is None:
         saved = deepcopy(grid.grid)
     grid.update_cells()
+    for x in range(grid.width):
+        for y in range(grid.height):
+            if x == 0 or y == 0 or x == grid.width - 1 or y == grid.height - 1:
+                grid[x, y] = Cell(0, "ghost")
     save_state_button.enabled = True
     load_state_button.enabled = True
+    grid.ticks += 1
 
 dt = 0
 while running:
@@ -592,6 +876,9 @@ while running:
         if event.type == pygame.VIDEORESIZE:
             SCREEN_WIDTH, SCREEN_HEIGHT = event.size
         if event.type == pygame.KEYDOWN:
+            if adj_menu_name is not None and adj_text_input is not None:
+                if adj_text_input.handle_key(event):
+                    continue
             if menu == "Game":
                 if event.key == pygame.K_e:
                     selected_cell["direction"] += 1
@@ -622,26 +909,41 @@ while running:
                     world_m_y = mouse_pos[1] + camera_y
                     camera_x = (world_m_x * cell_size // old_cell_size) - mouse_pos[0]
                     camera_y = (world_m_y * cell_size // old_cell_size) - mouse_pos[1]
+            else:
+                if menu == "Game" and 0 <= mx < grid.width and 0 <= my < grid.height:
+                    if grid[mx, my] is not None and cells.get_tag(grid[mx, my].name, "can_store"):
+                        place_type = "store"
         if event.type == pygame.MOUSEBUTTONUP:
             if event.button not in (4, 5):
                 if menu == "Game":
                     GameUI.click()
+                    AdjMenuUI.click()
                 elif menu == "Main Menu":
                     MainMenuUI.click()
     mouse_buttons = pygame.mouse.get_pressed()
-    if menu == "Game":
+    if menu == "Game" and adj_menu_name is None:
+        if mouse_buttons == (False,) * 3:
+            place_type = "place"
         if mouse_buttons[0] and not GameUI.hover():
-            place_cell(mx, my, selected_cell["direction"], selected_cell["name"])
-            for x in range(grid.width):
-                for y in range(grid.height):
-                    if x == 0 or y == 0 or x == grid.width - 1 or y == grid.height - 1:
-                        grid[x, y] = Cell(0, "ghost")
+            if 0 <= mx < grid.width and 0 <= my < grid.height:
+                if grid[mx, my] is not None and cells.get_tag(grid[mx, my].name,"can_store") and place_type == "store":
+                    grid[mx, my].storing = Cell(selected_cell["direction"], selected_cell["name"])
+                elif place_type == "place":
+                    place_cell(mx, my, selected_cell["direction"], selected_cell["name"], properties=adjustables.get(selected_cell["name"], {}))
+                    for x in range(grid.width):
+                        for y in range(grid.height):
+                            if x == 0 or y == 0 or x == grid.width - 1 or y == grid.height - 1:
+                                grid[x, y] = Cell(0, "ghost")
         if mouse_buttons[2] and not GameUI.hover():
-            delete_cell(mx, my)
-            for x in range(grid.width):
-                for y in range(grid.height):
-                    if x == 0 or y == 0 or x == grid.width - 1 or y == grid.height - 1:
-                        grid[x, y] = Cell(0, "ghost")
+            if 0 <= mx < grid.width and 0 <= my < grid.height:
+                if grid[mx, my] is not None and cells.get_tag(grid[mx, my].name, "can_store") and place_type == "store" and grid[mx, my].storing is not None:
+                    grid[mx, my].storing = None
+                elif place_type == "place":
+                    delete_cell(mx, my)
+                    for x in range(grid.width):
+                        for y in range(grid.height):
+                            if x == 0 or y == 0 or x == grid.width - 1 or y == grid.height - 1:
+                                grid[x, y] = Cell(0, "ghost")
         key_buttons = pygame.key.get_pressed()
         cam_speed = 60 * dt * 5
         if key_buttons[pygame.K_w]:
@@ -657,9 +959,17 @@ while running:
         screen.fill((20,) * 3)
         draw_grid()
         draw_ghost_cell(mx, my, selected_cell["direction"], selected_cell["name"])
+        if adjustables.get(selected_cell["name"]) is not None:
+            adj_button.enabled = True
+        else:
+            adj_button.enabled = False
         GameUI.draw()
         draw_infobox()
         draw_cate_infobox()
+        draw_adjustable_menu()
+        AdjMenuUI.draw()
+        if adj_text_input:
+            adj_text_input.update_animation(dt)
         GameUI.update_animation(dt)
     if menu == "Main Menu":
         screen.fill((30,) * 3)
