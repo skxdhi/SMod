@@ -3,7 +3,7 @@ import random
 import sys
 from copy import deepcopy
 from loader import audio, images
-
+import pygame
 def play_sound(sound_name):
     audio[sound_name].play()
 
@@ -259,6 +259,7 @@ class Grid:
         self.subtick("repulsor", active_cells)
         self.directional_subtick("puller", active_cells)
         self.directional_subtick("mover", active_cells)
+        self.directional_subtick("player", active_cells)
 
     def directional_subtick(self, chunkid, active_cells):
         for i in [0, 0.5, 2, 2.5, 1, 1.5, 3, 3.5]:
@@ -906,6 +907,19 @@ class Grid:
                     self[x, y] = downcopy
                     self.push_cell(x, y, to_vec(down_dir), {"replacecell": None})
 
+    def DoPlayer(self, x, y, cell):
+        global playerX
+        global playerY
+        keys = pygame.key.get_pressed()
+        if keys[pygame.K_UP] or keys[pygame.K_w]:
+            self.push_cell(x, y, Vector(0,-1))
+        if keys[pygame.K_DOWN] or keys[pygame.K_s]:
+            self.push_cell(x, y, Vector(0,1))
+        if keys[pygame.K_LEFT] or keys[pygame.K_a]:
+            self.push_cell(x, y, Vector(-1,0))
+        if keys[pygame.K_RIGHT] or keys[pygame.K_d]:
+            self.push_cell(x, y, Vector(1,0))    
+
     def DoRepulsor(self, x, y, cell):
         if cell.name == "repulsor":
             neighbor_func = self.get_neighbors if cell.direction % 1 == 0 else self.get_diagonals
@@ -1048,5 +1062,18 @@ class Grid:
             "ccw gear": -1,
         }
         self.do_basic_gear(x, y, rotation[cell.name])
+
+    def PlayerCamXY(self):
+        plyrx = 0
+        plyry = 0
+        ct = 0
+        for x,y,cell in self:
+            if cell is not None and cell.name == "player":
+                plyrx += x
+                plyry += y
+                ct += 1
+        if ct == 0:
+            return None,None
+        return plyrx/ct , plyry/ct
 
 grid = Grid(grid_width, grid_height)
