@@ -133,10 +133,11 @@ celltypes = {
     "winter": {"desc": "Freezes the entire grid."},
     "summer": {"desc": "Thaws the entire grid."},
     "puller": {"desc": "A Mover that moves the row behind it forwards instead of the row in front of it; Stops if there is a cell in the way."},
+    "player": {"desc": "A Mover that can be controlled with WASD"},
 }
 
 subcategories = {
-    "movers": ["mover", "slow mover", "helix", "skidhi 90", "leaper", "hydra"],
+    "movers": ["mover", "slow mover", "helix", "skidhi 90", "leaper", "hydra","player"],
     "pullers": ["puller"],
     "pushables": ["push", "zero directional", "one directional", "two directional", "slide", "three directional",
                   "random push", "arrow", "helix", "lichen"],
@@ -945,15 +946,22 @@ while running:
                             if x == 0 or y == 0 or x == grid.width - 1 or y == grid.height - 1:
                                 grid[x, y] = Cell(0, "ghost")
         key_buttons = pygame.key.get_pressed()
-        cam_speed = 60 * dt * 5
-        if key_buttons[pygame.K_w]:
-            camera_y -= cam_speed
-        if key_buttons[pygame.K_s]:
-            camera_y += cam_speed
-        if key_buttons[pygame.K_d]:
-            camera_x += cam_speed
-        if key_buttons[pygame.K_a]:
-            camera_x -= cam_speed
+        plyrx, plyry = None,None #Temporary Bugfix
+        if plyrx != None and sim_running:
+            camera_y += (camera_y - plyry) / 10
+            camera_x += (camera_x - plyrx) / 10
+        else:
+            cam_speed = 60 * dt * 5
+            if key_buttons[pygame.K_w]:
+                camera_y -= cam_speed
+            if key_buttons[pygame.K_s]:
+                camera_y += cam_speed
+            if key_buttons[pygame.K_d]:
+                camera_x += cam_speed
+            if key_buttons[pygame.K_a]:
+                camera_x -= cam_speed
+            
+
     screen.fill((0,) * 3)
     if menu == "Game":
         screen.fill((20,) * 3)
