@@ -2,8 +2,11 @@ import math
 import random
 import sys
 from copy import deepcopy
+
 from loader import audio, images
 import pygame
+
+player_input = []
 def play_sound(sound_name):
     audio[sound_name].play()
 
@@ -37,12 +40,14 @@ mover cell on the list
 
 chunks = {
     "rotator": ["cw 90 rotator", "ccw 90 rotator", "180 rotator", "random 90 rotator", "cw 45 rotator", "ccw 45 rotator", "random 45 rotator", "cw 135 rotator", "ccw 135 rotator", "random 135 rotator",
-                "skidhi 90"],
+                "skidhi 90", "ana rotator", "kata rotator", "half ana rotator", "half kata rotator"],
     "gear": ["cw gear", "ccw gear"],
-    "generator": ["cw generator", "ccw generator"],
-    "mover": ["leaper", "hydra", "skidhi 90", "slow mover"],
+    "generator": ["cw generator", "ccw generator", "single cell generator"],
+    "mover": ["leaper", "hydra", "skidhi 90", "slow mover", "player mover"],
     "freezer": ["winter"],
     "thawer": ["summer"],
+    "steer": ["player mover"],
+    "player": ["anti player", "pull player"],
 }
 
 tags = {}
@@ -61,6 +66,9 @@ def get_tag(name, tag, *args, default=None):
 def is_unbreakable(cell, force_type, side):
     return get_tag(cell.name, "unbreakable", force_type, side, cell, default=False)
 
+def collide(cell, force_type, side):
+    return get_tag(cell.name, "collide", force_type, side, cell, default=False)
+
 def gen_as(cell, side):
     return get_tag(cell.name, "gen_as", side, cell, default=cell.name)
 
@@ -74,6 +82,7 @@ add_tag("unbreakable", {
     "freezer": unbreakable_to("freeze"),
     "winter": unbreakable_to("freeze"),
     "repulsor": unbreakable_to("repulse"),
+    "impulsor": unbreakable_to("impulse"),
     "mirror": lambda f_t, s, c: f_t == "swap" and s%2 == 0,
     "arrow": unbreakable_to("rotate"),
 })
@@ -87,7 +96,14 @@ add_tag("can_store", {
     "storage": True,
 })
 
-collides = ["enemy", "trash", "jump trash"]
+add_tag("cannot_disable", {
+    "disabler": True,
+    "enabler": True,
+})
+
+add_tag("collide", {
+    "enemy": True,
+})
 
 def to_vec(direction):
     return {
@@ -154,7 +170,7 @@ class Vector:
 class EffectList:
     def __init__(self, d=None):
         d = d or {}
-        for var in ["frozen", "thawed"]:
+        for var in ["frozen", "thawed", "enabled"]:
             setattr(self, var, d.get(var, False))
 
     def copy(self):
@@ -174,6 +190,7 @@ class Cell:
         self.eaten = eaten if eaten is not None else []
         self.vars = v if v is not None else {}
         self.vars["coins"] = 0
+        self.vars["wrot"] = 0
         self.properties = dict([(i["name"], i["current_val"]) for i in properties]) if properties is not None else {}
 
     @property
@@ -249,15 +266,20 @@ class Grid:
 
         self.subtick("thawer", active_cells)
         self.subtick("freezer", active_cells)
+        self.subtick("enabler", active_cells)
+        self.subtick("disabler", active_cells)
         self.directional_subtick("mirror", active_cells)
+        self.directional_subtick("intaker", active_cells)
         self.directional_subtick("generator", active_cells)
         self.subtick("gear", active_cells)
         run_queue("postrotate")
         self.subtick("rotator", active_cells)
         run_queue("postrotate")
         self.subtick("redirector", active_cells)
+        self.subtick("impulsor", active_cells)
         self.subtick("repulsor", active_cells)
         self.directional_subtick("puller", active_cells)
+        self.subtick("steer", active_cells)
         self.directional_subtick("mover", active_cells)
         self.directional_subtick("player", active_cells)
 
@@ -301,26 +323,26 @@ class Grid:
                 else:
                     cell.noupdate = False
 
-    def get_neighbors(self, x, y):
+    def get_neighbors(self, x, y, dist=1):
         l = {}
         for i in range(4):
-            v = to_vec(i)
+            v = to_vec(i)*dist
             l[i] = ((x+v.x, y+v.y, self[x+v.x, y+v.y]))
         return l
 
-    def get_diagonals(self, x, y):
+    def get_diagonals(self, x, y, dist=1):
         l = {}
         for i in range(4):
             i += 0.5
-            v = to_vec(i)
+            v = to_vec(i)*dist
             l[i] = (x+v.x, y+v.y, self[x+v.x, y+v.y])
         return l
 
-    def get_surrounding(self, x, y):
+    def get_surrounding(self, x, y, dist=1):
         l = {}
         for i in range(8):
             i /= 2
-            v = to_vec(i)
+            v = to_vec(i)*dist
             l[i] = (x+v.x, y+v.y, self[x+v.x, y+v.y])
         return l
 
@@ -337,6 +359,7 @@ class Grid:
             self[x, y].effects.frozen = False
 
     def rotate_cell(self, x, y, amt, side=None):
+        if amt == 0: return
         if self[x, y] is not None:
             if side is not None and is_unbreakable(self[x, y], "rotate", side): return
             if self[x, y].name == "gyro":
@@ -347,6 +370,18 @@ class Grid:
                 return
             self[x, y].direction += amt
 
+    def w_rotate_cell(self, x, y, amt, side=None):
+        cell = self[x, y]
+        if cell is None: return
+        if side is not None and is_unbreakable(cell, "rotate", side): return
+
+        total = cell.vars.get("wrot", 0) + amt
+        applied = int(total / 2) * 2
+        cell.vars["wrot"] = total - applied
+
+        if applied != 0:
+            self.rotate_cell(x, y, applied, side)
+
     def rotate_cell_raw(self, x, y, amt, side):
         if self[x, y] is not None:
             if is_unbreakable(self[x, y], "rotate", side): return
@@ -356,6 +391,33 @@ class Grid:
         if self[x, y] is not None:
             if is_unbreakable(self[x, y], "redirect", side): return
             self[x, y].direction = direction
+
+    def disable_cell(self, x, y):
+        cell = self[x, y]
+        if cell is None: return
+        if cell.name == "disablestorage": return
+        if cell.effects.enabled: return
+        if get_tag(cell.name, "cannot_disable"): return
+        oldx = cell.oldx if cell.oldx is not None else x
+        oldy = cell.oldy if cell.oldy is not None else y
+        new_cell = Cell(
+            cell.direction,
+            "disablestorage",
+            oldx=oldx,
+            oldy=oldy,
+            olddirection=cell.olddirection,
+            effects=cell.effects.copy(),
+            eaten=list(cell.eaten),
+        )
+        new_cell.storing = cell.copy()
+        self[x, y] = new_cell
+
+    def enable_cell(self, x, y):
+        cell = self[x, y]
+        if cell is None: return
+        if cell.name == "disablestorage":
+            self[x, y] = cell.storing_raw
+        self[x, y].effects.enabled = True
 
     def eat_cell(self, x, y, tx, ty, force_animation=False):
         if (x, y) == (tx, ty):
@@ -691,7 +753,7 @@ class Grid:
                 play_sound("destroy")
 
         if front_cell is not None:
-            if front_cell.name in ["mover", "leaper", "hydra", "skidhi 90"] and not front_cell.effects.frozen:
+            if front_cell.name in ["mover", "leaper", "hydra", "skidhi 90", "player mover"] and not front_cell.effects.frozen:
                 if front_cell.direction == ddir:
                     flags["force"] += 1
                 elif front_cell.direction == (ddir + 2) % 4:
@@ -784,7 +846,7 @@ class Grid:
             if not (0 <= nx < self.width and 0 <= ny < self.height):
                 success = False
             elif front_cell is not None:
-                if front_cell.name not in collides:
+                if front_cell.name not in []:
                     success = False
                 elif not flags.get("test", False):
                     if front_cell.name == "enemy":
@@ -834,7 +896,7 @@ class Grid:
                 flags["force"] = 0
 
         if back_cell is not None:
-            if back_cell.name in ["puller"] and not cell.frozen:
+            if back_cell.name in ["puller"] and not cell.effects.frozen:
                 if back_cell.direction == cell.direction:
                     flags["force"] += 1
                 if back_cell.direction == (cell.direction+2)%4:
@@ -868,7 +930,7 @@ class Grid:
             self.swap_cells(fx, fy, bx, by, side1, side2)
 
     def DoMover(self, x, y, cell):
-        if cell.name in ["mover", "skidhi 90"]:
+        if cell.name in ["mover", "skidhi 90", "player mover"]:
             self.push_cell(x, y, to_vec(cell.direction))
         elif cell.name == "leaper":
             self.push_cell(x, y, to_vec(cell.direction) * 2)
@@ -907,18 +969,31 @@ class Grid:
                     self[x, y] = downcopy
                     self.push_cell(x, y, to_vec(down_dir), {"replacecell": None})
 
+    def get_player_input(self):
+        if not player_input:
+            return None
+        return {
+            "up": Vector(0, -1),
+            "down": Vector(0, 1),
+            "left": Vector(-1, 0),
+            "right": Vector(1, 0),
+        }.get(player_input[-1])
+
     def DoPlayer(self, x, y, cell):
-        global playerX
-        global playerY
-        keys = pygame.key.get_pressed()
-        if keys[pygame.K_UP]:
-            self.push_cell(x, y, Vector(0,-1))
-        if keys[pygame.K_DOWN]:
-            self.push_cell(x, y, Vector(0,1))
-        if keys[pygame.K_LEFT]:
-            self.push_cell(x, y, Vector(-1,0))
-        if keys[pygame.K_RIGHT]:
-            self.push_cell(x, y, Vector(1,0))    
+        vec = self.get_player_input()
+        if vec is not None:
+            if cell.name == "player":
+                self.push_cell(x, y, vec)
+            if cell.name == "anti player":
+                self.push_cell(x, y, -vec)
+            if cell.name == "pull player":
+                self.pull_cell(x, y, vec)
+
+    def DoSteer(self, x, y, cell):
+        vec = self.get_player_input()
+        if vec is not None:
+            cell.direction = to_dir(vec)
+        cell.noupdate = True
 
     def DoRepulsor(self, x, y, cell):
         if cell.name == "repulsor":
@@ -928,11 +1003,34 @@ class Grid:
                 if is_unbreakable(c, "repulse", to_side(c.direction, k)): continue
                 self.push_cell(i, j, to_vec(k))
 
+    def DoImpulsor(self, x, y, cell):
+        if cell.name == "impulsor":
+            neighbor_func = self.get_neighbors if cell.direction % 1 == 0 else self.get_diagonals
+            for k, (i, j, c) in neighbor_func(x, y, dist=2).items():
+                if c is None: continue
+                if is_unbreakable(c, "impulse", to_side(c.direction, k)): continue
+                self.pull_cell(i, j, -to_vec(k))
+
+    def DoIntaker(self, x, y, cell):
+        if cell.name == "intaker":
+            cx, cy, cdir, _ = self.step_forward(x, y, to_vec(cell.direction))
+            self.pull_cell(cx, cy, -cdir)
+
     def DoPuller(self, x, y, cell):
         if cell.name == "puller":
             self.pull_cell(x, y, to_vec(cell.direction))
 
     def DoRotator(self, x, y, cell):
+        if "ana" in cell.name or "kata" in cell.name:
+            neighbor_func = self.get_neighbors if cell.direction % 1 == 0 else self.get_diagonals
+            current_w_rot = next((val for key, val in {"ana": 1, "kata": -1}.items() if key in cell.name), 0)
+            if "half" in cell.name:
+                current_w_rot /= 2
+            for k, (i, j, c) in neighbor_func(x, y).items():
+                if not c: continue
+                force_dir = to_dir(Vector(i - x, j - y))
+                self.w_rotate_cell(i, j, current_w_rot, to_side(c.direction, force_dir))
+            return
         rotation = next(
             (val for key, val in {"45": 45, "90": 90, "135": 135, "180": 180, "360": 360}.items() if key in cell.name),
             0) / 90
@@ -981,9 +1079,11 @@ class Grid:
     def DoGenerator(self, x, y, cell):
         front_outputs = {
             "generator": 0,
+            "single cell generator": 0,
             "cw generator": 1,
             "ccw generator": -1,
         }
+        if cell.name == "single cell generator" and cell.vars.get("full", False): return
         front_output = front_outputs.get(cell.name, 0)
         bx, by, j, copy = self.step_backward(x, y, to_vec(cell.direction))
         fx, fy, k, _ = self.step_forward(x, y, to_vec((cell.direction + front_output)))
@@ -995,7 +1095,9 @@ class Grid:
             copy = None
         else:
             copy.name = g_a
-        self.push_cell(fx, fy, to_vec((cell.direction + front_output)), {"replacecell": copy})
+        if self.push_cell(fx, fy, to_vec((cell.direction + front_output)), {"replacecell": copy}):
+            if cell.name == "single cell generator":
+                cell.vars["full"] = True
 
     def DoRedirector(self, x, y, cell):
         neighbor_func = self.get_neighbors if cell.direction % 1 == 0 else self.get_diagonals
@@ -1025,13 +1127,26 @@ class Grid:
                 if not ncell: continue
                 self.freeze_cell(nx, ny)
 
+    def DoDisabler(self, x, y, cell):
+        if cell.name == "disabler":
+            neighbor_func = self.get_neighbors if cell.direction % 1 == 0 else self.get_diagonals
+            for k, (i, j, c) in neighbor_func(x, y).items():
+                if not c: continue
+                self.disable_cell(i, j)
+
+    def DoEnabler(self, x, y, cell):
+        if cell.name == "enabler":
+            neighbor_func = self.get_neighbors if cell.direction % 1 == 0 else self.get_diagonals
+            for k, (i, j, c) in neighbor_func(x, y).items():
+                if not c: continue
+                self.enable_cell(i, j)
 
     def do_basic_gear(self, gear_x, gear_y, rotation):
         neighbors = self.get_surrounding(gear_x, gear_y)
         old_states = neighbors.copy()
         gears = ["cw gear", "ccw gear", "jam"]
 
-        for i, (nx, ny, c) in old_states.values():
+        for i, (nx, ny, c) in old_states.items():
             if self[nx, ny] is not None:
                 if self[nx, ny].name in gears:
                     return
