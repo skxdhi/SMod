@@ -911,13 +911,13 @@ class Grid:
         global playerX
         global playerY
         keys = pygame.key.get_pressed()
-        if keys[pygame.K_UP] or keys[pygame.K_w]:
+        if keys[pygame.K_UP]:
             self.push_cell(x, y, Vector(0,-1))
-        if keys[pygame.K_DOWN] or keys[pygame.K_s]:
+        if keys[pygame.K_DOWN]:
             self.push_cell(x, y, Vector(0,1))
-        if keys[pygame.K_LEFT] or keys[pygame.K_a]:
+        if keys[pygame.K_LEFT]:
             self.push_cell(x, y, Vector(-1,0))
-        if keys[pygame.K_RIGHT] or keys[pygame.K_d]:
+        if keys[pygame.K_RIGHT]:
             self.push_cell(x, y, Vector(1,0))    
 
     def DoRepulsor(self, x, y, cell):
@@ -1062,18 +1062,5 @@ class Grid:
             "ccw gear": -1,
         }
         self.do_basic_gear(x, y, rotation[cell.name])
-
-    def PlayerCamXY(self):
-        plyrx = 0
-        plyry = 0
-        ct = 0
-        for x,y,cell in self:
-            if cell is not None and cell.name == "player":
-                plyrx += x
-                plyry += y
-                ct += 1
-        if ct == 0:
-            return None,None
-        return plyrx/ct , plyry/ct
 
 grid = Grid(grid_width, grid_height)

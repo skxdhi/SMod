@@ -133,7 +133,7 @@ celltypes = {
     "winter": {"desc": "Freezes the entire grid."},
     "summer": {"desc": "Thaws the entire grid."},
     "puller": {"desc": "A Mover that moves the row behind it forwards instead of the row in front of it; Stops if there is a cell in the way."},
-    "player": {"desc": "A Mover that can be controlled with WASD"},
+    "player": {"desc": "A Mover that can be controlled with arrow keys."},
 }
 
 subcategories = {
@@ -844,6 +844,21 @@ def reset_cells():
                 if effect not in perm_effects:
                     setattr(cell.effects, effect, False)
 
+def do_camera():
+    global camera_x, camera_y
+    def calc_player_cam():
+        player_pos = []
+        for x, y, cell in grid:
+            if cell is not None:
+                if cell.name == "player":
+                    player_pos.append((lerpp(cell.oldx, x, lerp)*cell_size, lerpp(cell.oldy, y, lerp)*cell_size))
+        if len(player_pos) == 0:
+            return None
+        return (sum([i[0] for i in player_pos])/len(player_pos) - SCREEN_WIDTH/2, sum([i[1] for i in player_pos])/len(player_pos) - SCREEN_HEIGHT/2)
+    plrcalc = calc_player_cam()
+    if plrcalc is not None and sim_running:
+        camera_x, camera_y = plrcalc
+
 def tick():
     global saved
     if saved is None:
@@ -965,6 +980,7 @@ while running:
     screen.fill((0,) * 3)
     if menu == "Game":
         screen.fill((20,) * 3)
+        do_camera()
         draw_grid()
         draw_ghost_cell(mx, my, selected_cell["direction"], selected_cell["name"])
         if adjustables.get(selected_cell["name"]) is not None:
