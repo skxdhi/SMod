@@ -1,6 +1,7 @@
 import os
 import sys
 import pygame
+from collections import defaultdict
 pygame.init()
 
 def resource_path(relative_path):
@@ -10,7 +11,8 @@ def resource_path(relative_path):
 
 
 def load_assets():
-    images = {}
+    noimage = pygame.image.load("textures\\noimage.png").convert_alpha()
+    images = defaultdict(lambda: noimage)
     audio = {}
 
     textures_root = resource_path('textures')
