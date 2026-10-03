@@ -965,6 +965,8 @@ def tick():
 
 
 dt = 0
+amb = pygame.mixer.Sound("SMod Soundtrack.wav")
+amb.play(loops=-1)
 while running:
     key_buttons = pygame.key.get_pressed()
     if key_buttons[pygame.K_LEFT]:
