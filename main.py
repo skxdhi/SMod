@@ -132,7 +132,7 @@ celltypes = {
     "jump trash": {"desc": "A Trash that moves away from cells it eats."},
     "self": {"desc": "When a storage like cell hold this cell, it makes it hold a copy of itself instead."},
     "texter": {"desc": "Change the cells Text parameter to display text."},
-    # "coin": {"desc": "When cells collect it, they get 1 coin added to their coin count. Yes, a form of currency in Cell Machine."},
+    "coin": {"desc": "When cells collect it, they get 1 coin added to their coin count. Yes, a form of currency in Cell Machine."},
     "void": {"desc": "When a storage like cell hold this cell, it makes it hold air instead."},
     "winter": {"desc": "Freezes the entire grid."},
     "summer": {"desc": "Thaws the entire grid."},
@@ -159,6 +159,7 @@ subcategories = {
     "pullers": ["puller"],
     "pushables": ["push", "zero directional", "one directional", "two directional", "slide", "three directional",
                   "random push", "arrow", "helix", "lichen"],
+    "coins" : ["coin"],
     "weights": ["weight", "anti weight", "bias", "gold", "lead"],
     "rotators": ["cw 90 rotator", "cw 45 rotator", "cw 135 rotator", "ccw 90 rotator", "ccw 45 rotator",
                  "ccw 135 rotator", "random 90 rotator", "random 45 rotator", "random 135 rotator", "180 rotator"],
@@ -191,7 +192,7 @@ categories = {
     "Destroyers": [subcategories["trashes"], subcategories["enemies"], images["trash"]],
     "Divergers": [subcategories["divergers"], images["curve diverger"]],
     "Effect Givers": [subcategories["freezers"], subcategories["disablers"], images["freezer"]],
-    "Other": [subcategories["storing"], subcategories["other"], images["void"]],
+    "Other": [subcategories["storing"], subcategories["other"], subcategories["coins"],images["void"]],
 }
 
 
