@@ -151,6 +151,13 @@ celltypes = {
     "anti player": {"desc": "A Player that moves in the opposite direction."},
     "pull player": {"desc": "A Player that uses pull force."},
     "single cell generator": {"desc": "A Generator that can only generate once."},
+    "super generator": {"desc": "A Generator that generates the entire row behind it."},
+    "cw super generator": {"desc": "Super Generator whose output is bent clockwise."},
+    "ccw super generator": {"desc": "Super Generator whose output is bent counterclockwise."},
+    "cw 22.5 rotator": {"desc": "When cells are rotated by this cell twice they get rotated 45 degrees clockwise."},
+    "ccw 22.5 rotator": {"desc": "When cells are rotated by this cell twice they get rotated 45 degrees counterclockwise."},
+    "bulk trash": {"desc": "A Trash that stalls the row of cells that move into it."},
+    "bulk enemy": {"desc": "An Enemy combined with a Bulk Trash."},
 }
 
 subcategories = {
@@ -162,12 +169,13 @@ subcategories = {
     "weights": ["weight", "anti weight", "bias", "gold", "lead"],
     "rotators": ["cw 90 rotator", "cw 45 rotator", "cw 135 rotator", "ccw 90 rotator", "ccw 45 rotator",
                  "ccw 135 rotator", "random 90 rotator", "random 45 rotator", "random 135 rotator", "180 rotator"],
-    "slow rotators": ["ana rotator", "half ana rotator", "kata rotator", "half kata rotator"],
+    "slow rotators": ["cw 22.5 rotator", "ccw 22.5 rotator", "ana rotator", "half ana rotator", "kata rotator", "half kata rotator"],
     "generators": ["generator", "cw generator", "ccw generator", "single cell generator"],
+    "super generators": ["super generator", "cw super generator", "ccw super generator"],
     "generatables": ["ungeneratable", "monogeneratable"],
     "walls": ["wall", "ghost"],
-    "trashes": ["trash", "squish trash", "jump trash"],
-    "enemies": ["enemy", "squish enemy"],
+    "trashes": ["trash", "squish trash", "jump trash", "bulk trash"],
+    "enemies": ["enemy", "squish enemy", "bulk enemy"],
     "divergers": ["curve diverger", "acute curve diverger", "obtuse curve diverger", "bicurve diverger",
                   "straight diverger", "bistraight diverger", "diode diverger"],
     "redirectors": ["redirector"],
@@ -184,7 +192,7 @@ subcategories = {
 categories = {
     "Base": [subcategories["pushables"], subcategories["weights"], subcategories["walls"], images["push"]],
     "Movers": [subcategories["movers"], subcategories["pullers"], subcategories["players"], images["mover"]],
-    "Recreation": [subcategories["generators"], subcategories["generatables"], images["generator"]],
+    "Recreation": [subcategories["generators"], subcategories["super generators"], subcategories["generatables"], images["generator"]],
     "Rotators": [subcategories["rotators"], subcategories["slow rotators"], subcategories["redirectors"], subcategories["gears"],
                  images["cw 90 rotator"]],
     "Forcers": [subcategories["repulsors"], subcategories["impulsors"], subcategories["gears"], subcategories["mirrors"], images["repulsor"]],
@@ -822,6 +830,13 @@ def draw_ghost_cell(x, y, direction, name):
     pygame.draw.rect(screen, (255, 255, 255, 220), box_rect, width=max(1, int(cell_size * 0.15)))
 
 
+def shadow(surf, opacity=30):
+    copy = surf.copy()
+    copy.fill((0, 0, 0, 255), special_flags=pygame.BLEND_RGBA_MIN)
+    copy.fill((opacity, opacity, opacity, opacity), special_flags=pygame.BLEND_RGBA_MULT)
+    return copy
+
+
 def draw_grid():
     for x, y, cell in grid:
         draw_cell(x, y, 0, "bg")
@@ -833,6 +848,9 @@ def draw_grid():
                   flags={"eaten": True, "x": None, "y": None})
     for x, y, cell in grid:
         if cell is None: continue
+        draw_cell(lerpp(cell.oldx, x, lerp)+0.25, lerpp(cell.oldy, y, lerp)+0.25,
+                  lerp_angle(cell.olddirection, cell._direction, lerp),
+                  cell.name, flags={"source": pygame.transform.scale_by(shadow(images[cell.name]), (2, 2))})
         for eaten in cell.eaten:
             draw_cell(lerpp(eaten.oldx, x, lerp), lerpp(eaten.oldy, y, lerp),
                       lerp_angle(eaten.olddirection, eaten._direction, lerp), eaten.name,
@@ -844,6 +862,10 @@ def draw_grid():
             draw_cell(lerpp(cell.oldx, x, lerp), lerpp(cell.oldy, y, lerp),
                       0,
                       "ana rotated" if cell.vars["wrot"] > 0 else "kata rotated", flags={"x": x, "y": y})
+        if cell.vars["srot"] != 0:
+            draw_cell(lerpp(cell.oldx, x, lerp), lerpp(cell.oldy, y, lerp),
+                      0,
+                      "cw 22.5 rotated" if cell.vars["srot"] > 0 else "ccw 22.5 rotated", flags={"x": x, "y": y})
         for effect in vars(cell.effects):
             if not getattr(cell.effects, effect): continue
             draw_cell(lerpp(cell.oldx, x, lerp), lerpp(cell.oldy, y, lerp),
