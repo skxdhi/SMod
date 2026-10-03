@@ -40,9 +40,10 @@ mover cell on the list
 
 chunks = {
     "rotator": ["cw 90 rotator", "ccw 90 rotator", "180 rotator", "random 90 rotator", "cw 45 rotator", "ccw 45 rotator", "random 45 rotator", "cw 135 rotator", "ccw 135 rotator", "random 135 rotator",
-                "skidhi 90", "ana rotator", "kata rotator", "half ana rotator", "half kata rotator"],
+                "skidhi 90", "ana rotator", "kata rotator", "half ana rotator", "half kata rotator", "cw 22.5 rotator", "ccw 22.5 rotator"],
     "gear": ["cw gear", "ccw gear"],
     "generator": ["cw generator", "ccw generator", "single cell generator"],
+    "super generator": ["cw super generator", "ccw super generator"],
     "mover": ["leaper", "hydra", "skidhi 90", "slow mover", "player mover"],
     "freezer": ["winter"],
     "thawer": ["summer"],
@@ -103,6 +104,7 @@ add_tag("cannot_disable", {
 
 add_tag("collide", {
     "enemy": True,
+    "bulk enemy": True,
 })
 
 def to_vec(direction):
@@ -189,8 +191,9 @@ class Cell:
         self.effects = effects if effects is not None else EffectList()
         self.eaten = eaten if eaten is not None else []
         self.vars = v if v is not None else {}
-        self.vars["coins"] = 0
-        self.vars["wrot"] = 0
+        self.vars.setdefault("coins", 0)
+        self.vars.setdefault("wrot", 0)
+        self.vars.setdefault("srot", 0)
         self.properties = dict([(i["name"], i["current_val"]) for i in properties]) if properties is not None else {}
 
     @property
@@ -270,6 +273,7 @@ class Grid:
         self.subtick("disabler", active_cells)
         self.directional_subtick("mirror", active_cells)
         self.directional_subtick("intaker", active_cells)
+        self.directional_subtick("super generator", active_cells)
         self.directional_subtick("generator", active_cells)
         self.subtick("gear", active_cells)
         run_queue("postrotate")
@@ -288,7 +292,7 @@ class Grid:
             self.subtick(chunkid, active_cells, i)
 
     def subtick(self, chunkid, active_cells, direction=None):
-        func = getattr(self, "Do" + chunkid[0].upper() + chunkid[1:])
+        func = getattr(self, "Do" + chunkid.title().replace(" ", ""))
         valid_names = {chunkid}.union(chunks.get(chunkid, []))
 
         if direction is None:
@@ -368,7 +372,7 @@ class Grid:
             if self[x, y].name == "helix":
                 queue_task("postrotate", lambda: self.DoHelix(x, y, amt))
                 return
-            self[x, y].direction += amt
+            self.rotate_cell_raw(x, y, amt, side)
 
     def w_rotate_cell(self, x, y, amt, side=None):
         cell = self[x, y]
@@ -383,9 +387,16 @@ class Grid:
             self.rotate_cell(x, y, applied, side)
 
     def rotate_cell_raw(self, x, y, amt, side):
-        if self[x, y] is not None:
-            if is_unbreakable(self[x, y], "rotate", side): return
-            self[x, y].direction += amt
+        cell = self[x, y]
+        if cell is None: return
+        if side is not None and is_unbreakable(cell, "rotate", side): return
+
+        total = cell.vars.get("srot", 0) + amt
+        applied = int(total / 0.5) * 0.5
+        cell.vars["srot"] = total - applied
+
+        if applied != 0:
+            self[x, y].direction += applied
 
     def redirect_cell(self, x, y, direction, side):
         if self[x, y] is not None:
@@ -665,7 +676,7 @@ class Grid:
                 self.push_cell(nx, ny, direction, {"replacecell": old_storing})
             flags["break"] = True
 
-        if cell.name in ["trash", "jump trash"]:
+        if cell.name in ["trash", "jump trash", "bulk trash"]:
             if lastpos is not None:
                 self.eat_cell(*lastpos, x, y)
                 self[*lastpos] = None
@@ -675,7 +686,10 @@ class Grid:
                 v = dict(flags)
                 v["ignore_first"] = True
                 self.push_cell(x, y, direction, v)
-            flags["break"] = True
+            if cell.name == "bulk trash":
+                success = False
+            else:
+                flags["break"] = True
             play_sound("destroy")
 
         elif cell.name == "squish trash":
@@ -726,7 +740,7 @@ class Grid:
                 self[x, y] = downcopy
                 self.push_cell(x, y, to_vec(down_dir), {"replacecell": None, "ignore_first": True})
 
-        elif cell.name == "enemy":
+        elif cell.name in ["enemy", "bulk enemy"]:
             self.eat_cell(x, y, x, y)
             self[x, y] = None
             if lastpos is not None:
@@ -734,7 +748,10 @@ class Grid:
                 self[*lastpos] = None
             else:
                 flags["replacecell"] = None
-            flags["break"] = True
+            if cell.name == "bulk enemy":
+                success = False
+            else:
+                flags["break"] = True
             play_sound("destroy")
 
         elif cell.name == "squish enemy":
@@ -857,6 +874,8 @@ class Grid:
                     play_sound("destroy")
                     if front_cell.name == "jump trash":
                         self.push_cell(nx, ny, front_direction, {"ignore_first": True})
+                    if "bulk" in front_cell.name:
+                        success = False
 
         if is_unbreakable(cell, "pull", side):
             flags["force"] = 0
@@ -1032,7 +1051,7 @@ class Grid:
                 self.w_rotate_cell(i, j, current_w_rot, to_side(c.direction, force_dir))
             return
         rotation = next(
-            (val for key, val in {"45": 45, "90": 90, "135": 135, "180": 180, "360": 360}.items() if key in cell.name),
+            (val for key, val in {"22.5": 22.5, "45": 45, "90": 90, "135": 135, "180": 180, "360": 360}.items() if key in cell.name),
             0) / 90
 
         if "skidhi" in cell.name:
@@ -1076,10 +1095,49 @@ class Grid:
         if self[x, y] is None: return
         self.push_cell(x, y, to_vec(self[x, y].direction))
 
+    def DoSuperGenerator(self, x, y, cell):
+        to_generate = []
+        cx, cy = x, y
+        front_outputs = {
+            "cw super generator": 1,
+            "ccw super generator": -1,
+        }
+        front_output = front_outputs.get(cell.name, 0)
+        fx, fy, k, _ = self.step_forward(x, y, to_vec(cell.direction+front_output))
+        while True:
+            cx, cy, j, cc = self.step_backward(cx, cy, to_vec(cell.direction))
+            if cc is None:
+                break
+            else:
+                # put cells into temporary storages so the row doesn't interact with itself during pushing
+                cc.direction += front_output
+                cc.direction %= 4
+                side = to_side(cc.direction, to_dir(j))
+                if gen_as(cc, side) is None:
+                    cc = None
+                    to_generate.append((Cell(0, "supergenstorage", v={"storing": cc}), side))
+                else:
+                    cc.name = gen_as(cc, side)
+                    to_generate.append((Cell((cc.direction+front_output)%4, "supergenstorage", v={"storing": cc}), side))
+
+        for c, side in to_generate:
+            self.push_cell(fx, fy, k, {"replacecell": c})
+
+        cx, cy = x, y
+        i = 0
+        while True:
+            cx, cy, _, cc = self.step_forward(cx, cy, to_vec(cell.direction+front_output))
+            if cc is None:
+                break
+            elif cc.name != "supergenstorage":
+                break
+            else:
+                # take cells out of storages
+                self[cx, cy] = self[cx, cy].storing_raw
+            i += 1
+
     def DoGenerator(self, x, y, cell):
         front_outputs = {
-            "generator": 0,
-            "single cell generator": 0,
             "cw generator": 1,
             "ccw generator": -1,
         }
