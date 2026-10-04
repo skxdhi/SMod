@@ -11,7 +11,7 @@ def resource_path(relative_path):
 
 
 def load_assets():
-    noimage = pygame.image.load("textures\\noimage.png").convert_alpha()
+    noimage = pygame.image.load(resource_path("textures\\noimage.png")).convert_alpha()
     images = defaultdict(lambda: noimage)
     audio = {}
 

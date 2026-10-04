@@ -367,7 +367,9 @@ class Grid:
         if self[x, y] is not None:
             if side is not None and is_unbreakable(self[x, y], "rotate", side): return
             if self[x, y].name == "gyro":
-                queue_task("postrotate", lambda: self.DoGyro(x, y, amt))
+                applied = self.take_srot(self[x, y], amt)
+                if applied != 0:
+                    queue_task("postrotate", lambda: self.DoGyro(x, y, applied))
                 return
             if self[x, y].name == "helix":
                 queue_task("postrotate", lambda: self.DoHelix(x, y, amt))
@@ -386,15 +388,18 @@ class Grid:
         if applied != 0:
             self.rotate_cell(x, y, applied, side)
 
+    def take_srot(self, cell, amt):
+        total = cell.vars.get("srot", 0) + amt
+        applied = int(total / 0.5) * 0.5
+        cell.vars["srot"] = total - applied
+        return applied
+
     def rotate_cell_raw(self, x, y, amt, side):
         cell = self[x, y]
         if cell is None: return
         if side is not None and is_unbreakable(cell, "rotate", side): return
 
-        total = cell.vars.get("srot", 0) + amt
-        applied = int(total / 0.5) * 0.5
-        cell.vars["srot"] = total - applied
-
+        applied = self.take_srot(cell, amt)
         if applied != 0:
             self[x, y].direction += applied
 
