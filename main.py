@@ -132,7 +132,7 @@ celltypes = {
     "jump trash": {"desc": "A Trash that moves away from cells it eats."},
     "self": {"desc": "When a storage like cell hold this cell, it makes it hold a copy of itself instead."},
     "texter": {"desc": "Change the cells Text parameter to display text."},
-    # "coin": {"desc": "When cells collect it, they get 1 coin added to their coin count. Yes, a form of currency in Cell Machine."},
+    "coin": {"desc": "When cells collect it, they get 1 coin added to their coin count. Yes, a form of currency in Cell Machine."},
     "void": {"desc": "When a storage like cell hold this cell, it makes it hold air instead."},
     "winter": {"desc": "Freezes the entire grid."},
     "summer": {"desc": "Thaws the entire grid."},
@@ -169,6 +169,7 @@ subcategories = {
     "pullers": ["puller"],
     "pushables": ["push", "zero directional", "one directional", "two directional", "slide", "three directional",
                   "random push", "arrow", "helix", "lichen"],
+    "coins" : ["coin"],
     "weights": ["weight", "anti weight", "bias", "gold", "lead"],
     "rotators": ["cw 90 rotator", "cw 45 rotator", "cw 135 rotator", "ccw 90 rotator", "ccw 45 rotator",
                  "ccw 135 rotator", "random 90 rotator", "random 45 rotator", "random 135 rotator", "180 rotator"],
@@ -203,7 +204,7 @@ categories = {
     "Destroyers": [subcategories["trashes"], subcategories["enemies"], images["trash"]],
     "Divergers": [subcategories["divergers"], images["curve diverger"]],
     "Effect Givers": [subcategories["freezers"], subcategories["disablers"], images["freezer"]],
-    "Other": [subcategories["storing"], subcategories["other"], subcategories["brightness"], images["void"]],
+    "Other": [subcategories["storing"], subcategories["other"], subcategories["brightness"], subcategories["coins"], images["void"]],
 }
 
 
@@ -692,17 +693,22 @@ def to_adj_menu(b):
     adj_menu_name = selected_cell["name"].lower()
     rebuild_adj_menu()
 
-
+def quit_game(b):
+    global menu
+    menu = "Main Menu"
+    
 sim_button = ui.ImageButton(20, 20, 70, 70, images["mover"], toggle_sim)
 add_ui(sim_button, ["Simulation Button"])
 step_button = ui.ImageButton(95, 20, 70, 70, images["nudger"], step_sim)
 add_ui(step_button, ["Simulation Button"])
+quit_button = ui.ImageButton(170, 20, 70, 70, images["close"], quit_game)
+add_ui(quit_button, ["Simulation Button"])
 save_state_button = ui.ImageButton(20, 95, 70, 70, images["generator"], save_state, enabled=False)
 add_ui(save_state_button, ["Simulation Button"])
 load_state_button = ui.ImageButton(95, 95, 70, 70, images["180 rotator"],
                                    compose(lambda x: play_sound("click"), load_state), enabled=False)
 add_ui(load_state_button, ["Simulation Button"])
-adj_button = ui.ImageButton(170, 20, 70, 70, images["edit"], compose(lambda x: play_sound("click"), to_adj_menu),
+adj_button = ui.ImageButton(265, 20, 70, 70, images["edit"], compose(lambda x: play_sound("click"), to_adj_menu),
                             enabled=False)
 add_ui(adj_button, ["Simulation Button"])
 
@@ -1053,6 +1059,8 @@ def draw_bright_areas():
 
 
 dt = 0
+amb = pygame.mixer.Sound("SMod Soundtrack.wav")
+amb.play(loops=-1)
 while running:
     key_buttons = pygame.key.get_pressed()
     if key_buttons[pygame.K_LEFT]:
