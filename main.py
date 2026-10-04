@@ -158,6 +158,9 @@ celltypes = {
     "ccw 22.5 rotator": {"desc": "When cells are rotated by this cell twice they get rotated 45 degrees counterclockwise."},
     "bulk trash": {"desc": "A Trash that stalls the row of cells that move into it."},
     "bulk enemy": {"desc": "An Enemy combined with a Bulk Trash."},
+    "light": {"desc": "Lights up a dark area, removes overlapping darkness if the strength value is greater than it."},
+    "dark": {"desc": "Darkens a certain area."},
+    "night": {"desc": "Like Dark, but it covers the entire grid."},
 }
 
 subcategories = {
@@ -188,6 +191,7 @@ subcategories = {
     "repulsors": ["repulsor"],
     "impulsors": ["impulsor"],
     "other": ["texter"],
+    "brightness": ["light", "dark", "night"]
 }
 
 categories = {
@@ -200,7 +204,7 @@ categories = {
     "Destroyers": [subcategories["trashes"], subcategories["enemies"], images["trash"]],
     "Divergers": [subcategories["divergers"], images["curve diverger"]],
     "Effect Givers": [subcategories["freezers"], subcategories["disablers"], images["freezer"]],
-    "Other": [subcategories["storing"], subcategories["other"], subcategories["coins"],images["void"]],
+    "Other": [subcategories["storing"], subcategories["other"], subcategories["brightness"], subcategories["coins"], images["void"]],
 }
 
 
@@ -219,8 +223,27 @@ adjustables = {
     ],
     "texter": [
         make_adj_element("String", "", "Text"),
-    ]
+    ],
+    "light": [
+        make_adj_element("Integer", 3, "Width"),
+        make_adj_element("Integer", 3, "Height"),
+        make_adj_element("Float", 10, "Strength"),
+    ],
+    "dark": [
+        make_adj_element("Integer", 3, "Width"),
+        make_adj_element("Integer", 3, "Height"),
+        make_adj_element("Float", 10, "Strength"),
+    ],
+    "night": [
+        make_adj_element("Float", 10, "Strength"),
+    ],
 }
+
+
+def draw_rect_alpha(surface, color, rect):
+    shape_surf = pygame.Surface(pygame.Rect(rect).size, pygame.SRCALPHA)
+    pygame.draw.rect(shape_surf, color, shape_surf.get_rect())
+    surface.blit(shape_surf, rect)
 
 lerp = 0
 update_delay = 0.2
@@ -856,7 +879,7 @@ def draw_grid():
         if cell is None: continue
         draw_cell(lerpp(cell.oldx, x, lerp)+0.25, lerpp(cell.oldy, y, lerp)+0.25,
                   lerp_angle(cell.olddirection, cell._direction, lerp),
-                  cell.name, flags={"source": pygame.transform.scale_by(shadow(images[cell.name]), (2, 2))})
+                  cell.name, flags={"source": pygame.transform.scale_by(shadow(images[cell.name]), (2, 2)), "x": x, "y": y,})
         for eaten in cell.eaten:
             draw_cell(lerpp(eaten.oldx, x, lerp), lerpp(eaten.oldy, y, lerp),
                       lerp_angle(eaten.olddirection, eaten._direction, lerp), eaten.name,
@@ -991,6 +1014,49 @@ def tick():
     load_state_button.enabled = True
     grid.ticks += 1
 
+_light_mask = None
+def draw_bright_areas():
+    global _light_mask
+    screen_rect = screen.get_rect()
+
+    sources = []
+    has_dark = False
+    for x, col in enumerate(grid.grid):
+        for y, cell in enumerate(col):
+            if cell is None: continue
+            name = cell.name
+            if name == "night":
+                rect = screen_rect.copy()
+                is_light = False
+            elif name == "light" or name == "dark":
+                p = cell.properties
+                rect = pygame.Rect(0, 0, p.get("Width", 3) * cell_size, p.get("Height", 3) * cell_size)
+                rect.center = ((x + 0.5) * cell_size - camera_x, (y + 0.5) * cell_size - camera_y)
+                if not rect.colliderect(screen_rect): continue
+                is_light = name == "light"
+            else:
+                continue
+            has_dark |= not is_light
+            sources.append((cell.properties.get("Strength", 10), is_light, rect))
+
+    if not has_dark:
+        return
+
+    size = screen.get_size()
+    if _light_mask is None or _light_mask.get_size() != size:
+        _light_mask = pygame.Surface(size, pygame.SRCALPHA)
+    else:
+        _light_mask.fill((0, 0, 0, 0))
+
+    sources.sort(key=lambda s: (s[0], s[1]))
+    for strength, is_light, rect in sources:
+        if is_light:
+            _light_mask.fill((0, 0, 0, 0), rect)
+        else:
+            pygame.draw.rect(_light_mask, (0, 0, 0, 80), rect)
+
+    screen.blit(_light_mask, (0, 0))
+
 
 dt = 0
 amb = pygame.mixer.Sound("SMod Soundtrack.wav")
@@ -1110,6 +1176,7 @@ while running:
         screen.fill((20,) * 3)
         do_camera()
         draw_grid()
+        draw_bright_areas()
         draw_ghost_cell(mx, my, selected_cell["direction"], selected_cell["name"])
         if adjustables.get(selected_cell["name"]) is not None:
             adj_button.enabled = True
