@@ -670,22 +670,22 @@ def to_adj_menu(b):
     adj_menu_name = selected_cell["name"].lower()
     rebuild_adj_menu()
 
-def quit_app(b):
-    global running
-    running = False
+def quit_game(b):
+    global menu
+    menu = "Main Menu"
     
 sim_button = ui.ImageButton(20, 20, 70, 70, images["mover"], toggle_sim)
 add_ui(sim_button, ["Simulation Button"])
 step_button = ui.ImageButton(95, 20, 70, 70, images["nudger"], step_sim)
 add_ui(step_button, ["Simulation Button"])
-quit_button = ui.ImageButton(170, 20, 70, 70, images["close"], quit_app)
+quit_button = ui.ImageButton(170, 20, 70, 70, images["close"], quit_game)
 add_ui(quit_button, ["Simulation Button"])
 save_state_button = ui.ImageButton(20, 95, 70, 70, images["generator"], save_state, enabled=False)
 add_ui(save_state_button, ["Simulation Button"])
 load_state_button = ui.ImageButton(95, 95, 70, 70, images["180 rotator"],
                                    compose(lambda x: play_sound("click"), load_state), enabled=False)
 add_ui(load_state_button, ["Simulation Button"])
-adj_button = ui.ImageButton(170, 20, 70, 70, images["edit"], compose(lambda x: play_sound("click"), to_adj_menu),
+adj_button = ui.ImageButton(265, 20, 70, 70, images["edit"], compose(lambda x: play_sound("click"), to_adj_menu),
                             enabled=False)
 add_ui(adj_button, ["Simulation Button"])
 
