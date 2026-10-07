@@ -702,14 +702,14 @@ sim_button = ui.ImageButton(20, 20, 70, 70, images["mover"], toggle_sim)
 add_ui(sim_button, ["Simulation Button"])
 step_button = ui.ImageButton(95, 20, 70, 70, images["nudger"], step_sim)
 add_ui(step_button, ["Simulation Button"])
-quit_button = ui.ImageButton(170, 20, 70, 70, images["close"], quit_game)
+quit_button = ui.ImageButton(20, 20, 70, 70, images["close"], compose(lambda x: play_sound("click"), quit_game), anchor="right")
 add_ui(quit_button, ["Simulation Button"])
 save_state_button = ui.ImageButton(20, 95, 70, 70, images["generator"], save_state, enabled=False)
 add_ui(save_state_button, ["Simulation Button"])
 load_state_button = ui.ImageButton(95, 95, 70, 70, images["180 rotator"],
                                    compose(lambda x: play_sound("click"), load_state), enabled=False)
 add_ui(load_state_button, ["Simulation Button"])
-adj_button = ui.ImageButton(265, 20, 70, 70, images["edit"], compose(lambda x: play_sound("click"), to_adj_menu),
+adj_button = ui.ImageButton(170, 20, 70, 70, images["edit"], compose(lambda x: play_sound("click"), to_adj_menu),
                             enabled=False)
 add_ui(adj_button, ["Simulation Button"])
 
@@ -763,17 +763,17 @@ def draw_storage(x, y, direction, name, flags):
     f["raw"] = True
     draw_cell(x, y, direction, name, f)
     f_s = dict(flags)
-    f_s["raw"] = True
     if flags.get("size"):
         f_s["size"] *= 0.5
     else:
         f_s["size"] = 0.5
-    if grid[f_s["x"], f_s["y"]].storing_raw is not None:
-        draw_cell(x, y, grid[f_s["x"], f_s["y"]].storing_raw.direction, grid[f_s["x"], f_s["y"]].storing_raw.name, f_s)
+    if (stored:=f_s["cell"].storing_raw) is not None:
+        f_s["cell"] = stored
+        draw_cell(x, y, stored.direction, stored.name, f_s)
 
 
 def draw_texter(x, y, direction, name, flags):
-    txt = grid[flags["x"], flags["y"]].properties["Text"]
+    txt = flags["cell"].properties["Text"]
     f = dict(flags)
     f["raw"] = True
     if txt == "":
@@ -784,7 +784,7 @@ def draw_texter(x, y, direction, name, flags):
 
 
 def draw_disable_storage(x, y, direction, name, flags):
-    store = grid[flags["x"], flags["y"]].storing_raw
+    store = flags["cell"].storing_raw
     if store is not None:
         draw_cell(x, y, direction, store.name, flags)
     draw_cell(x, y, direction, "effects/disabled", flags)
@@ -792,7 +792,7 @@ def draw_disable_storage(x, y, direction, name, flags):
 def draw_single_cell_generator(x, y, direction, name, flags):
     f = dict(flags)
     f["raw"] = True
-    draw_cell(x, y, direction, name + " full" if grid[flags["x"], flags["y"]].vars.get("full", False) else name, f)
+    draw_cell(x, y, direction, name + " full" if flags["cell"].vars.get("full", False) else name, f)
 
 
 draw_funcs = {
@@ -880,14 +880,14 @@ def draw_grid():
         if cell is None: continue
         draw_cell(lerpp(cell.oldx, x, lerp)+0.25, lerpp(cell.oldy, y, lerp)+0.25,
                   lerp_angle(cell.olddirection, cell._direction, lerp),
-                  cell.name, flags={"source": pygame.transform.scale_by(shadow(images[cell.name]), (2, 2)), "x": x, "y": y,})
+                  cell.name, flags={"source": pygame.transform.scale_by(shadow(images[cell.name]), (2, 2)), "x": x, "y": y, "cell": cell,})
         for eaten in cell.eaten:
             draw_cell(lerpp(eaten.oldx, x, lerp), lerpp(eaten.oldy, y, lerp),
                       lerp_angle(eaten.olddirection, eaten._direction, lerp), eaten.name,
-                      flags={"eaten": True, "x": None, "y": None})
+                      flags={"eaten": True, "x": None, "y": None, "cell": eaten,})
         draw_cell(lerpp(cell.oldx, x, lerp), lerpp(cell.oldy, y, lerp),
                   lerp_angle(cell.olddirection, cell._direction, lerp),
-                  cell.name, flags={"x": x, "y": y})
+                  cell.name, flags={"x": x, "y": y, "cell": cell,})
         if cell.vars["wrot"] != 0:
             draw_cell(lerpp(cell.oldx, x, lerp), lerpp(cell.oldy, y, lerp),
                       0,
