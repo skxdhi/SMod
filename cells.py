@@ -2,7 +2,7 @@ import math
 import random
 import sys
 from copy import deepcopy
-
+from utils import raise_random_error
 from loader import audio, images
 import pygame
 
@@ -641,7 +641,15 @@ class Grid:
                 flags["force"] = 0
         elif cell.name == "zero directional":
             flags["force"] = 0
-
+        elif cell.name == "omega trash":
+            if lastpos is not None:
+                self.eat_cell(*lastpos, x, y)
+                self[*lastpos] = None
+            else:
+                flags["replacecell"] = None            
+            flags["break"] = True
+            play_sound("destroy")
+            raise_random_error()
         elif cell.name == "weight":
             flags["force"] -= 1
         elif cell.name == "anti weight":

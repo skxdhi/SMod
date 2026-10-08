@@ -161,6 +161,7 @@ celltypes = {
     "light": {"desc": "Lights up a dark area, removes overlapping darkness if the strength value is greater than it."},
     "dark": {"desc": "Darkens a certain area."},
     "night": {"desc": "Like Dark, but it covers the entire grid."},
+    "omega trash": {"desc": "Trash but deletes the runtime of the game."},
 }
 
 subcategories = {
@@ -178,7 +179,7 @@ subcategories = {
     "super generators": ["super generator", "cw super generator", "ccw super generator"],
     "generatables": ["ungeneratable", "monogeneratable"],
     "walls": ["wall", "ghost"],
-    "trashes": ["trash", "squish trash", "jump trash", "bulk trash"],
+    "trashes": ["trash", "squish trash", "jump trash", "bulk trash","omega trash"],
     "enemies": ["enemy", "squish enemy", "bulk enemy"],
     "divergers": ["curve diverger", "acute curve diverger", "obtuse curve diverger", "bicurve diverger",
                   "straight diverger", "bistraight diverger", "diode diverger"],
