@@ -132,7 +132,8 @@ celltypes = {
     "jump trash": {"desc": "A Trash that moves away from cells it eats."},
     "self": {"desc": "When a storage like cell hold this cell, it makes it hold a copy of itself instead."},
     "texter": {"desc": "Change the cells Text parameter to display text."},
-    "coin": {"desc": "When cells collect it, they get 1 coin added to their coin count. Yes, a form of currency in Cell Machine."},
+    "coin": {
+        "desc": "When cells collect it, they get 1 coin added to their coin count. Yes, a form of currency in Cell Machine."},
     "void": {"desc": "When a storage like cell hold this cell, it makes it hold air instead."},
     "winter": {"desc": "Freezes the entire grid."},
     "summer": {"desc": "Thaws the entire grid."},
@@ -142,9 +143,12 @@ celltypes = {
     "disabler": {"desc": "Makes neighboring cells act like pushables."},
     "enabler": {"desc": "Prevents adjacent cells from being disabled."},
     "ana rotator": {"desc": "When cells are rotated by this cell twice they get rotated 180 degrees clockwise."},
-    "kata rotator": {"desc": "When cells are rotated by this cell twice they get rotated 180 degrees counterclockwise."},
-    "half ana rotator": {"desc": "Ana Rotator that rotates half the amount, it needs to rotate a cell 4 times to rotate it 180 degrees by itself."},
-    "half kata rotator": {"desc": "Kata Rotator that rotates half the amount, it needs to rotate a cell 4 times to rotate it 180 degrees by itself."},
+    "kata rotator": {
+        "desc": "When cells are rotated by this cell twice they get rotated 180 degrees counterclockwise."},
+    "half ana rotator": {
+        "desc": "Ana Rotator that rotates half the amount, it needs to rotate a cell 4 times to rotate it 180 degrees by itself."},
+    "half kata rotator": {
+        "desc": "Kata Rotator that rotates half the amount, it needs to rotate a cell 4 times to rotate it 180 degrees by itself."},
     "impulsor": {"desc": "Pulls neighboring cells towards it."},
     "player mover": {"desc": "A Mover whose direction can be changed using arrow keys."},
     "intaker": {"desc": "Pulls cells in front of it towards it in which it eats them."},
@@ -155,31 +159,35 @@ celltypes = {
     "cw super generator": {"desc": "Super Generator whose output is bent clockwise."},
     "ccw super generator": {"desc": "Super Generator whose output is bent counterclockwise."},
     "cw 22.5 rotator": {"desc": "When cells are rotated by this cell twice they get rotated 45 degrees clockwise."},
-    "ccw 22.5 rotator": {"desc": "When cells are rotated by this cell twice they get rotated 45 degrees counterclockwise."},
+    "ccw 22.5 rotator": {
+        "desc": "When cells are rotated by this cell twice they get rotated 45 degrees counterclockwise."},
     "bulk trash": {"desc": "A Trash that stalls the row of cells that move into it."},
     "bulk enemy": {"desc": "An Enemy combined with a Bulk Trash."},
     "light": {"desc": "Lights up a dark area, removes overlapping darkness if the strength value is greater than it."},
     "dark": {"desc": "Darkens a certain area."},
     "night": {"desc": "Like Dark, but it covers the entire grid."},
     "omega trash": {"desc": "Trash but deletes the runtime of the game."},
+    "attack trash": {"desc": "A Trash that moves away towards cells it eats."},
+    "advancer": {"desc": "Puller + Mover."},
 }
 
 subcategories = {
-    "movers": ["mover", "slow mover", "helix", "skidhi 90", "leaper", "hydra", "player mover"],
+    "movers": ["mover", "slow mover", "helix", "skidhi 90", "leaper", "hydra", "player mover", "advancer"],
     "players": ["player", "player mover", "anti player", "pull player"],
-    "pullers": ["puller"],
+    "pullers": ["puller", "advancer"],
     "pushables": ["push", "zero directional", "one directional", "two directional", "slide", "three directional",
                   "random push", "arrow", "helix", "lichen"],
-    "coins" : ["coin"],
+    "coins": ["coin"],
     "weights": ["weight", "anti weight", "bias", "gold", "lead"],
     "rotators": ["cw 90 rotator", "cw 45 rotator", "cw 135 rotator", "ccw 90 rotator", "ccw 45 rotator",
                  "ccw 135 rotator", "random 90 rotator", "random 45 rotator", "random 135 rotator", "180 rotator"],
-    "slow rotators": ["cw 22.5 rotator", "ccw 22.5 rotator", "ana rotator", "half ana rotator", "kata rotator", "half kata rotator"],
+    "slow rotators": ["cw 22.5 rotator", "ccw 22.5 rotator", "ana rotator", "half ana rotator", "kata rotator",
+                      "half kata rotator"],
     "generators": ["generator", "cw generator", "ccw generator", "single cell generator"],
     "super generators": ["super generator", "cw super generator", "ccw super generator"],
     "generatables": ["ungeneratable", "monogeneratable"],
     "walls": ["wall", "ghost"],
-    "trashes": ["trash", "squish trash", "jump trash", "bulk trash","omega trash"],
+    "trashes": ["trash", "jump trash", "attack trash", "squish trash", "bulk trash", "omega trash"],
     "enemies": ["enemy", "squish enemy", "bulk enemy"],
     "divergers": ["curve diverger", "acute curve diverger", "obtuse curve diverger", "bicurve diverger",
                   "straight diverger", "bistraight diverger", "diode diverger"],
@@ -198,14 +206,18 @@ subcategories = {
 categories = {
     "Base": [subcategories["pushables"], subcategories["weights"], subcategories["walls"], images["push"]],
     "Movers": [subcategories["movers"], subcategories["pullers"], subcategories["players"], images["mover"]],
-    "Recreation": [subcategories["generators"], subcategories["super generators"], subcategories["generatables"], images["generator"]],
-    "Rotators": [subcategories["rotators"], subcategories["slow rotators"], subcategories["redirectors"], subcategories["gears"],
+    "Recreation": [subcategories["generators"], subcategories["super generators"], subcategories["generatables"],
+                   images["generator"]],
+    "Rotators": [subcategories["rotators"], subcategories["slow rotators"], subcategories["redirectors"],
+                 subcategories["gears"],
                  images["cw 90 rotator"]],
-    "Forcers": [subcategories["repulsors"], subcategories["impulsors"], subcategories["gears"], subcategories["mirrors"], images["repulsor"]],
+    "Forcers": [subcategories["repulsors"], subcategories["impulsors"], subcategories["gears"],
+                subcategories["mirrors"], images["repulsor"]],
     "Destroyers": [subcategories["trashes"], subcategories["enemies"], images["trash"]],
     "Divergers": [subcategories["divergers"], images["curve diverger"]],
     "Effect Givers": [subcategories["freezers"], subcategories["disablers"], images["freezer"]],
-    "Other": [subcategories["storing"], subcategories["other"], subcategories["brightness"], subcategories["coins"], images["void"]],
+    "Other": [subcategories["storing"], subcategories["other"], subcategories["brightness"], subcategories["coins"],
+              images["void"]],
 }
 
 
@@ -245,6 +257,7 @@ def draw_rect_alpha(surface, color, rect):
     shape_surf = pygame.Surface(pygame.Rect(rect).size, pygame.SRCALPHA)
     pygame.draw.rect(shape_surf, color, shape_surf.get_rect())
     surface.blit(shape_surf, rect)
+
 
 lerp = 0
 update_delay = 0.2
@@ -694,15 +707,18 @@ def to_adj_menu(b):
     adj_menu_name = selected_cell["name"].lower()
     rebuild_adj_menu()
 
+
 def quit_game(b):
     global menu
     menu = "Main Menu"
-    
+
+
 sim_button = ui.ImageButton(20, 20, 70, 70, images["mover"], toggle_sim)
 add_ui(sim_button, ["Simulation Button"])
 step_button = ui.ImageButton(95, 20, 70, 70, images["nudger"], step_sim)
 add_ui(step_button, ["Simulation Button"])
-quit_button = ui.ImageButton(20, 20, 70, 70, images["close"], compose(lambda x: play_sound("click"), quit_game), anchor="right")
+quit_button = ui.ImageButton(20, 20, 70, 70, images["close"], compose(lambda x: play_sound("click"), quit_game),
+                             anchor="right")
 add_ui(quit_button, ["Simulation Button"])
 save_state_button = ui.ImageButton(20, 95, 70, 70, images["generator"], save_state, enabled=False)
 add_ui(save_state_button, ["Simulation Button"])
@@ -767,7 +783,7 @@ def draw_storage(x, y, direction, name, flags):
         f_s["size"] *= 0.5
     else:
         f_s["size"] = 0.5
-    if (stored:=f_s["cell"].storing_raw) is not None:
+    if (stored := f_s["cell"].storing_raw) is not None:
         f_s["cell"] = stored
         draw_cell(x, y, stored.direction, stored.name, f_s)
 
@@ -788,6 +804,7 @@ def draw_disable_storage(x, y, direction, name, flags):
     if store is not None:
         draw_cell(x, y, direction, store.name, flags)
     draw_cell(x, y, direction, "effects/disabled", flags)
+
 
 def draw_single_cell_generator(x, y, direction, name, flags):
     f = dict(flags)
@@ -878,16 +895,18 @@ def draw_grid():
                   flags={"eaten": True, "x": None, "y": None})
     for x, y, cell in grid:
         if cell is None: continue
-        draw_cell(lerpp(cell.oldx, x, lerp)+0.25, lerpp(cell.oldy, y, lerp)+0.25,
+        draw_cell(lerpp(cell.oldx, x, lerp) + 0.25, lerpp(cell.oldy, y, lerp) + 0.25,
                   lerp_angle(cell.olddirection, cell._direction, lerp),
-                  cell.name, flags={"source": pygame.transform.scale_by(shadow(images[cell.name]), (2, 2)), "x": x, "y": y, "cell": cell,})
+                  cell.name,
+                  flags={"source": pygame.transform.scale_by(shadow(images[cell.name]), (2, 2)), "x": x, "y": y,
+                         "cell": cell, })
         for eaten in cell.eaten:
             draw_cell(lerpp(eaten.oldx, x, lerp), lerpp(eaten.oldy, y, lerp),
                       lerp_angle(eaten.olddirection, eaten._direction, lerp), eaten.name,
-                      flags={"eaten": True, "x": None, "y": None, "cell": eaten,})
+                      flags={"eaten": True, "x": None, "y": None, "cell": eaten, })
         draw_cell(lerpp(cell.oldx, x, lerp), lerpp(cell.oldy, y, lerp),
                   lerp_angle(cell.olddirection, cell._direction, lerp),
-                  cell.name, flags={"x": x, "y": y, "cell": cell,})
+                  cell.name, flags={"x": x, "y": y, "cell": cell, })
         if cell.vars["wrot"] != 0:
             draw_cell(lerpp(cell.oldx, x, lerp), lerpp(cell.oldy, y, lerp),
                       0,
@@ -1015,7 +1034,10 @@ def tick():
     load_state_button.enabled = True
     grid.ticks += 1
 
+
 _light_mask = None
+
+
 def draw_bright_areas():
     global _light_mask
     screen_rect = screen.get_rect()
@@ -1059,6 +1081,27 @@ def draw_bright_areas():
     screen.blit(_light_mask, (0, 0))
 
 
+ui_dir_from = 0
+ui_dir_to = 0
+ui_dir_t = 1
+ui_dir_shown = 0
+
+def update_ui_rotation(dt):
+    global ui_dir_from, ui_dir_to, ui_dir_t, ui_dir_shown
+    target = selected_cell["direction"]
+    if target != ui_dir_to:
+        ui_dir_from = ui_dir_shown % 4
+        ui_dir_to = target
+        ui_dir_t = 0
+    ui_dir_t = min(1, ui_dir_t + dt / 0.1)
+    ui_dir_shown = lerp_angle(ui_dir_from, ui_dir_to, ui_dir_t)
+    angle = ui_dir_shown * -90
+    for element in GameUI.elements:
+        tag = getattr(element, "tag", None)
+        if tag and tag[0] in ("Category Button", "Subcategory Button", "Cell Button"):
+            element.angle = angle
+
+
 dt = 0
 amb = pygame.mixer.Sound("SMod Soundtrack.wav")
 amb.play(loops=-1)
@@ -1075,7 +1118,7 @@ while running:
     mouse_pos = pygame.mouse.get_pos()
     mx, my = int((mouse_pos[0] + camera_x) // cell_size), int((mouse_pos[1] + camera_y) // cell_size)
     lerp += dt * (1 / update_delay)
-    if lerp >= 1:
+    if lerp >= 1 and menu == "Game":
         lerp = 0
         stepping = False
         reset_cells()
@@ -1183,10 +1226,13 @@ while running:
             adj_button.enabled = True
         else:
             adj_button.enabled = False
+        update_ui_rotation(dt)
         GameUI.draw()
         draw_infobox()
         draw_cate_infobox()
         draw_adjustable_menu()
+        fps_txt = small_font.render("FPS: " + str(fps), True, (255,) * 3)
+        screen.blit(fps_txt, (20, 0))
         AdjMenuUI.draw()
         if adj_text_input:
             adj_text_input.update_animation(dt)
@@ -1198,5 +1244,6 @@ while running:
                                  40 + math.sin(pygame.time.get_ticks() / 500) * 10))
         draw_main_infobox()
     pygame.display.flip()
-    dt = clock.tick(60) / 1000
+    dt = clock.tick(120) / 1000
+    fps = 1 / dt
 pygame.quit()

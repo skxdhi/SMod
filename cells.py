@@ -26,12 +26,14 @@ def queue_last(c, task):
     queue[c].insert(0, task)
 
 def run_queue(c):
-    q = queue[c]
+    if (q:=queue.get(c)) is None: return
     while q:
         task = q.pop(0)
         task()
 
 add_channel("postrotate")
+add_channel("postpush")
+add_channel("postpull")
 
 """
 cells without a chunk automatically get a chunk specifically for itself so that's why you might not see
@@ -49,6 +51,7 @@ chunks = {
     "thawer": ["summer"],
     "steer": ["player mover"],
     "player": ["anti player", "pull player"],
+    "puller": ["advancer"],
 }
 
 tags = {}
@@ -520,6 +523,24 @@ class Grid:
 
         return result
 
+    @staticmethod
+    def custom_force(push=False, pull=False):
+        def wrapper(self, x, y, direction, flags=None):
+            flags = flags or {}
+            ok = True
+            if push:
+                ok = self.push_cell(x, y, Vector(direction.x, direction.y), dict(flags or {}))
+                if not ok:
+                    return False
+            if pull:
+                cx, cy, cdir, _ = self.step_backward(x, y, Vector(direction.x, direction.y))
+                ok = self.pull_cell(cx, cy, cdir, dict(flags or {}))
+            return ok
+
+        return wrapper
+
+    advance_cell = custom_force(push=True, pull=True)
+
     def push_cell(self, x, y, direction, flags=None):
         orig_x, orig_y = x, y
         cx, cy = x, y
@@ -589,6 +610,7 @@ class Grid:
 
         if not success:
             restore_snapshot()
+            run_queue("postpush")
             return False
 
         if not flags.get("test", False):
@@ -599,6 +621,7 @@ class Grid:
 
             if self[orig_x, orig_y] is None:
                 self[orig_x, orig_y] = flags["replacecell"]
+            run_queue("postpush")
         else:
             restore_snapshot()
 
@@ -689,16 +712,20 @@ class Grid:
                 self.push_cell(nx, ny, direction, {"replacecell": old_storing})
             flags["break"] = True
 
-        if cell.name in ["trash", "jump trash", "bulk trash"]:
+        if cell.name in ["trash", "jump trash", "attack trash", "bulk trash"]:
             if lastpos is not None:
                 self.eat_cell(*lastpos, x, y)
                 self[*lastpos] = None
             else:
                 flags["replacecell"] = None
-            if cell.name in ["jump trash"]:
+            if cell.name in ["jump trash", "attack trash"]:
                 v = dict(flags)
+                jump_dir = {
+                    "jump trash": direction,
+                    "attack trash": -direction,
+                }[cell.name]
                 v["ignore_first"] = True
-                self.push_cell(x, y, direction, v)
+                queue_task("postpush", lambda: self.push_cell(x, y, jump_dir, v))
             if cell.name == "bulk trash":
                 success = False
             else:
@@ -783,7 +810,7 @@ class Grid:
                 play_sound("destroy")
 
         if front_cell is not None:
-            if front_cell.name in ["mover", "leaper", "hydra", "skidhi 90", "player mover"] and not front_cell.effects.frozen:
+            if front_cell.name in ["mover", "leaper", "hydra", "skidhi 90", "player mover", "advancer"] and not front_cell.effects.frozen:
                 if front_cell.direction == ddir:
                     flags["force"] += 1
                 elif front_cell.direction == (ddir + 2) % 4:
@@ -850,6 +877,8 @@ class Grid:
                 self[pcx, pcy] = self[px, py]
                 self[px, py] = None
 
+        run_queue("postpull")
+
         return True
 
     def handle_pull(self, x, y, direction, flags):
@@ -886,7 +915,9 @@ class Grid:
                     self[x, y] = None
                     play_sound("destroy")
                     if front_cell.name == "jump trash":
-                        self.push_cell(nx, ny, front_direction, {"ignore_first": True})
+                        queue_task("postpull", lambda: self.push_cell(nx, ny, front_direction, {"ignore_first": True}))
+                    if front_cell.name == "attack trash":
+                        queue_task("postpull", lambda: self.push_cell(nx, ny, -front_direction, {"ignore_first": True}))
                     if "bulk" in front_cell.name:
                         success = False
 
@@ -928,7 +959,7 @@ class Grid:
                 flags["force"] = 0
 
         if back_cell is not None:
-            if back_cell.name in ["puller"] and not cell.effects.frozen:
+            if back_cell.name in ["puller", "advancer"] and not cell.effects.frozen:
                 if back_cell.direction == cell.direction:
                     flags["force"] += 1
                 if back_cell.direction == (cell.direction+2)%4:
@@ -1051,6 +1082,8 @@ class Grid:
     def DoPuller(self, x, y, cell):
         if cell.name == "puller":
             self.pull_cell(x, y, to_vec(cell.direction))
+        if cell.name == "advancer":
+            self.advance_cell(x, y, to_vec(cell.direction))
 
     def DoRotator(self, x, y, cell):
         if "ana" in cell.name or "kata" in cell.name:
