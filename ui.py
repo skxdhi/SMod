@@ -234,9 +234,9 @@ class TextInput(ButtonTemplate):
             return False
 
         if self.numeric:
-            allowed = "0123456789"
+            allowed = "0123456789-"
             if self.allow_float:
-                allowed += ".-"
+                allowed += "."
             if char not in allowed:
                 return True  # consume but ignore invalid
             # basic validation: only one dot, minus only at start
@@ -284,3 +284,139 @@ class TextInput(ButtonTemplate):
                 display = display[1:]
                 text_surf = self.font.render(display, True, self.text_color)
         screen.blit(text_surf, (text_x, text_y))
+
+
+class Slider(ButtonTemplate):
+    """Horizontal slider. Click the track (or the handle) and drag to change the value.
+    Layout, left to right: label | track | value text.
+    on_change(value) is called every time the value changes."""
+    def __init__(self, x, y, width, height, min_val=0, max_val=100, value=None, on_change=None,
+                 font=None, label="", step=1, anchor="top-left", enabled=True, anim_start_pos=None,
+                 label_width=0, value_width=0,
+                 track_color=(40, 40, 40), fill_color=(120, 160, 220), handle_color=(230, 230, 230),
+                 handle_hover_color=(255, 255, 255), border_color=(100, 100, 100),
+                 text_color=(255, 255, 255), tag=""):
+        super().__init__(x, y, width, height, lambda b: None, anchor, enabled, anim_start_pos, tag)
+        self.min_val = min_val
+        self.max_val = max_val
+        self.step = step
+        self.on_change = on_change
+        self.font = font
+        self.label = label
+        self.label_width = label_width
+        self.value_width = value_width
+        self.track_color = track_color
+        self.fill_color = fill_color
+        self.handle_color = handle_color
+        self.handle_hover_color = handle_hover_color
+        self.border_color = border_color
+        self.text_color = text_color
+        self.dragging = False
+        self._was_pressed = False
+        self._value = self._clean(min_val if value is None else value)
+
+    def _clean(self, v):
+        v = max(self.min_val, min(self.max_val, v))
+        if self.step:
+            v = self.min_val + round((v - self.min_val) / self.step) * self.step
+            v = max(self.min_val, min(self.max_val, v))
+        if isinstance(self.step, int) and isinstance(self.min_val, int):
+            v = int(round(v))
+        return v
+
+    @property
+    def value(self):
+        return self._value
+
+    @value.setter
+    def value(self, v):
+        self.set_value(v)
+
+    def set_value(self, v, notify=False):
+        v = self._clean(v)
+        changed = v != self._value
+        self._value = v
+        if changed and notify and self.on_change:
+            self.on_change(v)
+
+    @property
+    def fraction(self):
+        span = self.max_val - self.min_val
+        return 0.0 if span == 0 else (self._value - self.min_val) / span
+
+    def track_rect(self):
+        left = self.x + self.label_width
+        right = self.x + self.width - self.value_width
+        return pygame.Rect(int(left), int(self.y), int(max(1, right - left)), int(self.height))
+
+    def _value_from_mouse(self, mx):
+        track = self.track_rect()
+        t = (mx - track.left) / track.width
+        t = max(0.0, min(1.0, t))
+        return self.min_val + t * (self.max_val - self.min_val)
+
+    def click(self):
+        pass
+
+    def _update_input(self):
+        pressed = pygame.mouse.get_pressed()[0]
+        mx, my = pygame.mouse.get_pos()
+        if not pressed:
+            self.dragging = False
+        elif not self._was_pressed and self.hover():
+            self.dragging = True
+        self._was_pressed = pressed
+        if self.dragging:
+            self.set_value(self._value_from_mouse(mx), notify=True)
+
+    def draw(self):
+        if not self.enabled:
+            return
+        self._update_input()
+        screen = pygame.display.get_surface()
+        track = self.track_rect()
+        mid_y = track.centery
+
+        bar = pygame.Rect(track.left, mid_y - 4, track.width, 8)
+        pygame.draw.rect(screen, self.track_color, bar, border_radius=4)
+        fill_w = int(track.width * self.fraction)
+        if fill_w > 0:
+            pygame.draw.rect(screen, self.fill_color, pygame.Rect(bar.left, bar.top, fill_w, bar.height), border_radius=4)
+        pygame.draw.rect(screen, self.border_color, bar, width=1, border_radius=4)
+
+        handle_w = max(8, int(self.height * 0.4))
+        handle = pygame.Rect(0, 0, handle_w, int(self.height))
+        handle.center = (track.left + fill_w, mid_y)
+        handle.clamp_ip(pygame.Rect(track.left - handle_w // 2, track.top, track.width + handle_w, track.height))
+        active = self.dragging or self.hover()
+        pygame.draw.rect(screen, self.handle_hover_color if active else self.handle_color, handle, border_radius=3)
+        pygame.draw.rect(screen, self.border_color, handle, width=2, border_radius=3)
+
+        if self.font is not None:
+            if self.label and self.label_width:
+                surf = self.font.render(self.label, True, self.text_color)
+                screen.blit(surf, (int(self.x), mid_y - surf.get_height() // 2))
+            if self.value_width:
+                surf = self.font.render(str(self._value), True, self.text_color)
+                screen.blit(surf, (int(self.x + self.width - self.value_width + 10), mid_y - surf.get_height() // 2))
+
+
+class ColorSwatch(ButtonTemplate):
+    """A square that shows a colour. get_color is a function returning an (r, g, b) tuple."""
+    def __init__(self, x, y, width, height, get_color, anchor="top-left", enabled=True, anim_start_pos=None,
+                 border_color=(50, 50, 50), tag=""):
+        super().__init__(x, y, width, height, lambda b: None, anchor, enabled, anim_start_pos, tag)
+        self.get_color = get_color
+        self.border_color = border_color
+
+    def click(self):
+        pass
+
+    def draw(self):
+        if not self.enabled:
+            return
+        screen = pygame.display.get_surface()
+        rect = pygame.Rect(int(self.x), int(self.y), int(self.width), int(self.height))
+        r, g, b = (max(0, min(255, int(c))) for c in self.get_color()[:3])
+        pygame.draw.rect(screen, (r, g, b), rect)
+        pygame.draw.rect(screen, self.border_color, rect, width=3)
