@@ -8,7 +8,7 @@ import json
 import zlib
 
 import utils
-from utils import compose
+from utils import compose, lerp, lerp_angle, polar_lerp
 
 import pygame
 
@@ -196,7 +196,9 @@ celltypes = {
         "desc": "When cells collect it, they lose 1 coin from their coin count. Cells can have negative coins (dont ask)."},
     "nano weight": {"desc": "Acts like a wall if its the first cell in the row to be pushed."},
     "anti nano weight": {"desc": "Acts like a wall if its not the first cell in the row to be pushed."},
-    "coin diverger": {"desc": "A Bistraight Diverger that takes away an adjustable amount of coins from cells, doesnt let cells pass through that dont have sufficient currency."},
+    #"coin diverger": {"desc": "A Bistraight Diverger that takes away an adjustable amount of coins from cells, doesnt let cells pass through that dont have sufficient currency."},
+    "chocolate coin": {
+        "desc": "When cells collect it, they.... uhhhmm.... you know what lemme try one. *chomp*. SOGOODANDYUMMYANDDELICIOUSAN- *dies*. Sorry I had to take over for skidhi, it doesnt give you anything."},
 }
 
 subcategories = {
@@ -208,7 +210,7 @@ subcategories = {
     "pullers": ["puller", "slow puller", "leaper puller", "advancer"],
     "pushables": ["push", "zero directional", "one directional", "two directional", "slide", "three directional",
                   "random push", "arrow", "helix", "lichen"],
-    "coins": ["coin", "anti coin", "coin diverger"],
+    "coins": ["coin", "anti coin", "chocolate coin"],
     "weights": ["weight", "anti weight", "bias", "gold", "lead", "nano weight", "anti nano weight", "bread", "adjustable weight"],
     "rotators": ["cw 90 rotator", "cw 45 rotator", "cw 135 rotator", "ccw 90 rotator", "ccw 45 rotator",
                  "ccw 135 rotator", "random 90 rotator", "random 45 rotator", "random 135 rotator", "180 rotator"],
@@ -221,7 +223,7 @@ subcategories = {
     "trashes": ["trash", "jump trash", "attack trash", "squish trash", "bulk trash", "omega trash"],
     "enemies": ["enemy", "squish enemy", "bulk enemy", "bread"],
     "divergers": ["curve diverger", "acute curve diverger", "obtuse curve diverger", "bicurve diverger",
-                  "straight diverger", "bistraight diverger", "diode diverger", "coin diverger"],
+                  "straight diverger", "bistraight diverger", "diode diverger"],
     "redirectors": ["redirector"],
     "freezers": ["freezer", "winter", "thawer", "summer"],
     "disablers": ["disabler", "enabler"],
@@ -288,6 +290,10 @@ adjustables = {
         make_adj_element("Integer", 2, "Numerator"),
         make_adj_element("Natural", 1, "Denominator"),
     ],
+    "random push": [
+        make_adj_element("Natural", 1, "Numerator"),
+        make_adj_element("Natural", 2, "Denominator"),
+    ],
     "bread": [
         make_adj_element("Integer", 3, "Numerator"),
         make_adj_element("Natural", 1, "Denominator"),
@@ -315,7 +321,7 @@ def draw_rect_alpha(surface, color, rect):
     surface.blit(shape_surf, rect)
 
 
-lerp = 0
+lerp_time = 0
 update_delay = 0.2
 sim_running, stepping = (False,) * 2
 
@@ -759,13 +765,13 @@ def toggle_sim(b):
 
 
 def step_sim(b):
-    global stepping, sim_running, sim_button, lerp
+    global stepping, sim_running, sim_button, lerp_time
     if stepping: return
     if sim_running:
         toggle_sim(sim_button)
         return
     stepping = True
-    lerp = 0
+    lerp_time = 0
     if sim_running:
         toggle_sim(sim_button)
     tick()
@@ -779,10 +785,10 @@ def save_state(b):
 
 
 def load_state(b):
-    global saved, grid, save_state_button, sim_running, sim_button, lerp
+    global saved, grid, save_state_button, sim_running, sim_button, lerp_time
     if sim_running:
         toggle_sim(sim_button)
-    lerp = 1
+    lerp_time = 1
     grid.grid = deepcopy(saved)
     b.enabled = False
     save_state_button.enabled = False
@@ -844,20 +850,6 @@ add_ui(quit_button, ["Main Menu", "Quit"], menu="Main Menu")
 credits_button = ui.ImageButton(500, 40, 150, 150, images["push"],
                                 compose(lambda x: play_sound("click"), go_to_credits), anchor="left-bottom")
 add_ui(credits_button, ["Main Menu", "Credits"], menu="Main Menu")
-
-
-def lerpp(s, e, t):
-    if not fancy_graphics: return e
-    if s is None: return e
-    return s + t * (e - s)
-
-
-def lerp_angle(s, e, t):
-    if not fancy_graphics: return e
-    if s is None: return e
-    diff = e - s
-    diff = (diff + 2) % 4 - 2
-    return s + diff * t
 
 def draw_text(x, y, direction, name, flags, text, outline=False, color=(255, 255, 255)):
     if flags.get("shadow"):
@@ -938,6 +930,7 @@ after_draw_funcs = {
     "bread": draw_fraction("Numerator", "Denominator"),
     "adjustable weight": draw_fraction("Numerator", "Denominator"),
     "adjustable rotator": draw_fraction("Numerator", "Denominator"),
+    "random push": draw_fraction("Numerator", "Denominator"),
     "meta": draw_number("Index", offset_x=0.25, offset_y=0.25),
     "coin diverger": draw_number("Cost", offset_x=0.25, offset_y=0.25),
 }
@@ -958,7 +951,7 @@ def draw_cell(x, y, direction, name, flags=None):
     flags["size"] = flags.get("size", 1)
     ccell_size = cell_size
     if flags.get("eaten", False):
-        flags["size"] *= (1 - lerp)
+        flags["size"] *= (1 - lerp_time)
     if flags.get("size") is not None:
         ccell_size = round(cell_size * flags.get("size"))
     if ccell_size <= 0: return
@@ -1023,29 +1016,34 @@ def draw_grid():
 
     for (cell, trashpos) in grid.eaten:
         if cell is None: continue
-        draw_cell(lerpp(cell.oldx, trashpos[0], lerp), lerpp(cell.oldy, trashpos[1], lerp),
-                  lerp_angle(cell.olddirection, cell._direction, lerp), cell.name,
+        draw_cell(lerp(cell.oldx, trashpos[0], lerp_time), lerp(cell.oldy, trashpos[1], lerp_time),
+                  lerp_angle(cell.olddirection, cell._direction, lerp_time), cell.name,
                   flags={"eaten": True, "x": None, "y": None, "cell": cell,})
     for x, y, cell in grid:
         if cell is None: continue
-        draw_cell(lerpp(cell.oldx, x, lerp) + 0.25, lerpp(cell.oldy, y, lerp) + 0.25,
-                  lerp_angle(cell.olddirection, cell._direction, lerp),
+
+        draw_x, draw_y = lerp(cell.oldx, x, lerp_time), lerp(cell.oldy, y, lerp_time)
+        if cell.anim_center is not None:
+            draw_x, draw_y = polar_lerp((cell.oldx, cell.oldy), (x, y), cell.anim_center, lerp_time)
+
+        draw_cell(draw_x + 0.25, draw_y + 0.25,
+                  lerp_angle(cell.olddirection, cell._direction, lerp_time),
                   cell.name,
                   flags={"x": x, "y": y, "cell": cell, "shadow": True}
         )
         for eaten in cell.eaten:
-            draw_cell(lerpp(eaten.oldx, x, lerp), lerpp(eaten.oldy, y, lerp),
-                      lerp_angle(eaten.olddirection, eaten._direction, lerp), eaten.name,
+            draw_cell(lerp(eaten.oldx, x, lerp_time), lerp(eaten.oldy, y, lerp_time),
+                      lerp_angle(eaten.olddirection, eaten._direction, lerp_time), eaten.name,
                       flags={"eaten": True, "x": None, "y": None, "cell": eaten, })
-        draw_cell(lerpp(cell.oldx, x, lerp), lerpp(cell.oldy, y, lerp),
-                  lerp_angle(cell.olddirection, cell._direction, lerp),
+        draw_cell(draw_x, draw_y,
+                  lerp_angle(cell.olddirection, cell._direction, lerp_time),
                   cell.name, flags={"x": x, "y": y, "cell": cell, })
         if cell.vars["wrot"] != 0:
-            draw_cell(lerpp(cell.oldx, x, lerp), lerpp(cell.oldy, y, lerp),
+            draw_cell(draw_x, draw_y,
                       0,
                       "ana rotated" if cell.vars["wrot"] > 0 else "kata rotated", flags={"x": x, "y": y})
         if cell.vars["srot"] != 0:
-            draw_cell(lerpp(cell.oldx, x, lerp), lerpp(cell.oldy, y, lerp),
+            draw_cell(draw_x, draw_y,
                       0,
                       "cw 22.5 rotated" if cell.vars["srot"] > 0 else "ccw 22.5 rotated", flags={"x": x, "y": y})
             srot = round(cell.vars["srot"], 3)
@@ -1055,22 +1053,22 @@ def draw_grid():
                 srot = "-"+str(-srot)
             else:
                 srot = ""
-            draw_text(lerpp(cell.oldx, x, lerp), lerpp(cell.oldy, y, lerp)-0.1,
+            draw_text(draw_x, draw_y-0.1,
                       0,
                       "cw 22.5 rotated" if cell.vars["srot"] > 0 else "ccw 22.5 rotated", {"x": x, "y": y, "size": 0.6},
                       srot, outline=(225, 78, 46) if cell.vars["srot"] > 0 else (46, 168, 219))
         if cell.vars["coins"] != 0:
-            draw_cell(lerpp(cell.oldx, x, lerp), lerpp(cell.oldy, y, lerp),
+            draw_cell(draw_x, draw_y,
                       0,
                       "coins", flags={"x": x, "y": y})
-            draw_text(lerpp(cell.oldx, x, lerp), lerpp(cell.oldy, y, lerp)-0.325,
+            draw_text(draw_x, draw_y-0.325,
                       0,
                       "coins", {"x": x, "y": y},
                       str(cell.vars["coins"]))
         for effect in vars(cell.effects):
             if not getattr(cell.effects, effect): continue
             if isinstance(effect, list): effect = effect[0]
-            draw_cell(lerpp(cell.oldx, x, lerp), lerpp(cell.oldy, y, lerp),
+            draw_cell(draw_x, draw_y,
                       0,
                       f"effects/{effect}", flags={"x": x, "y": y})
 
@@ -1149,6 +1147,7 @@ def reset_cells():
             cell._direction = cell._direction % 4
             cell.updated = False
             cell.eaten = []
+            cell.anim_center = None
             for effect in vars(cell.effects):
                 if effect not in perm_effects:
                     setattr(cell.effects, effect, False)
@@ -1162,8 +1161,8 @@ def do_camera():
         for x, y, cell in grid:
             if cell is not None:
                 if cell.name in ["player", "player mover", "anti player", "pull player"]:
-                    player_pos.append((lerpp(cell.oldx, x, lerp) * cell_size + cell_size / 2,
-                                       lerpp(cell.oldy, y, lerp) * cell_size + cell_size / 2))
+                    player_pos.append((lerp(cell.oldx, x, lerp_time) * cell_size + cell_size / 2,
+                                       lerp(cell.oldy, y, lerp_time) * cell_size + cell_size / 2))
         if len(player_pos) == 0:
             return None
         return (sum([i[0] for i in player_pos]) / len(player_pos) - SCREEN_WIDTH / 2,
@@ -1270,16 +1269,16 @@ while running:
         player_input.append("right")
     mouse_pos = pygame.mouse.get_pos()
     mx, my = int((mouse_pos[0] + camera_x) // cell_size), int((mouse_pos[1] + camera_y) // cell_size)
-    lerp += dt * (1 / update_delay)
-    if lerp >= 1 and menu == "Game":
-        lerp = 0
+    lerp_time += dt * (1 / update_delay)
+    if lerp_time >= 1 and menu == "Game":
+        lerp_time = 0
         stepping = False
         reset_cells()
         if sim_running:
             tick()
         player_input.clear()
     if menu == "Main Menu":
-        lerp = 1
+        lerp_time = 1
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False

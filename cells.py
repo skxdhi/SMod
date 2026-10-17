@@ -139,6 +139,7 @@ add_tag("nudge_into", {
     "bread": True,
     "coin": True,
     "anti coin": True,
+    "chocolate coin": True,
 })
 
 def to_vec(direction):
@@ -214,7 +215,7 @@ class EffectList:
         return EffectList(vars(self))
 
 class Cell:
-    def __init__(self, direction, name, oldx=None, oldy=None, olddirection=None, eatencells=None, updated=False, effects=None, noupdate=False, eaten=None, v=None, properties=None):
+    def __init__(self, direction, name, oldx=None, oldy=None, olddirection=None, eatencells=None, updated=False, effects=None, noupdate=False, eaten=None, v=None, anim_center=None, properties=None):
         self._direction = direction
         self.name = name
         self.oldx = oldx
@@ -229,6 +230,7 @@ class Cell:
         self.vars.setdefault("coins", 0)
         self.vars.setdefault("wrot", 0)
         self.vars.setdefault("srot", 0)
+        self.anim_center = anim_center
         if isinstance(properties, dict):
             self.properties = properties
         else:
@@ -783,7 +785,7 @@ class Grid:
             if side == 2:
                 flags["force"] = 0
         elif cell.name == "random push":
-            if random.random() < 0.5:
+            if random.random() > cell.properties["Numerator"]/cell.properties["Denominator"]:
                 flags["force"] = 0
         elif cell.name == "one directional":
             if side != 0:
@@ -823,7 +825,7 @@ class Grid:
         elif cell.name == "inertia":
             cell.vars["momentum"] = {"direction": direction, "force": flags["force"]}
 
-        if cell.name in ("coin", "anti coin"):
+        if cell.name in ("coin", "anti coin", "chocolate coin"):
             amount = (1 if cell.name == "coin" else (-1 if cell.name == "anti coin" else 0))
             if lastpos is not None and self[*lastpos] is not None:
                 self[*lastpos].vars["coins"] += amount
@@ -1163,7 +1165,7 @@ class Grid:
             if (momentum:=cell.vars.get("momentum", None)) is not None:
                 ok = self.push_cell(x, y, momentum["direction"], {"force": momentum["force"]})
                 if not ok:
-                    momentum = None
+                    cell.vars["momentum"] = None
 
     def DoNudger(self, x, y, cell):
         if cell.name == "nudger":
@@ -1509,6 +1511,7 @@ class Grid:
             if cell is None: continue
             tx, ty, _ = neighbors[ring[(idx + steps) % len(ring)]]
             to_copy = cell.copy()
+            to_copy.anim_center = (gear_x, gear_y)
             self[tx, ty] = to_copy
             self.rotate_cell(tx, ty, rotation, to_side(to_copy.direction, i))
 
