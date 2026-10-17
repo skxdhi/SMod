@@ -1,13 +1,15 @@
 import functools, pygame
 import math
-
+import functools
+from random import choice
+allerrors = [item for item in dir(locals()['__builtins__']) if "Error" in item or "Exception" in item]
 
 def compose(*functions):
     return functools.reduce(lambda f, g: lambda x: f(g(x)), functions)
-
+  
 def raise_random_error():
-    # the game was crashing because you didnt include this function
-    pass
+    global allerrors
+    raise choice(allerrors)
 
 
 def get_darkest_color(surface: pygame.Surface):
