@@ -377,7 +377,8 @@ class Slider(ButtonTemplate):
         track = self.track_rect()
         mid_y = track.centery
 
-        bar = pygame.Rect(track.left, mid_y - 4, track.width, 8)
+        bar_height = 16
+        bar = pygame.Rect(track.left, mid_y - bar_height/2, track.width, bar_height)
         pygame.draw.rect(screen, self.track_color, bar, border_radius=4)
         fill_w = int(track.width * self.fraction)
         if fill_w > 0:

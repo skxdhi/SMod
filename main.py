@@ -1,5 +1,6 @@
 import math
 import os
+import random
 import sys
 import textwrap
 from copy import deepcopy
@@ -38,6 +39,7 @@ import ui
 GameUI = ui.UI([])
 MainMenuUI = ui.UI([])
 AdjMenuUI = ui.UI([])
+SettingsMenuUI = ui.UI([])
 
 adj_overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
 adj_overlay.fill((80,) * 4)
@@ -66,6 +68,9 @@ place_type = "place"
 adj_menu_name = None
 selected_adj_index = 0
 adj_text_input = None
+
+coolbgthings = []
+last_spawn_time_of_coolbgthing = 0
 
 celltypes = {
     "mover": {"desc": "Moves one space per tick in the direction it is pointing, pushing the cells in its way."},
@@ -130,7 +135,7 @@ celltypes = {
         "desc": "Stores the cell that moves into it, if it already has a cell it will push it out on the opposite side."},
     "repulsor": {"desc": "Pushes neighboring cells away from it."},
     "slow mover": {"desc": "A Mover that moves every other tick."},
-    "adj test": {"desc": "test"},
+    #"adj test": {"desc": "test"},
     "jump trash": {"desc": "A Trash that moves away from cells it eats."},
     "self": {"desc": "When a storage like cell hold this cell, it makes it hold a copy of itself instead."},
     "texter": {"desc": "Change the cells Text parameter to display text."},
@@ -199,13 +204,17 @@ celltypes = {
     #"coin diverger": {"desc": "A Bistraight Diverger that takes away an adjustable amount of coins from cells, doesnt let cells pass through that dont have sufficient currency."},
     "chocolate coin": {
         "desc": "When cells collect it, they.... uhhhmm.... you know what lemme try one. *chomp*. SOGOODANDYUMMYANDDELICIOUSAN- *dies*. Sorry I had to take over for skidhi, it doesnt give you anything."},
+    "rotatable inertia": {"desc": "Inertia whose force rotates when rotated."},
+    "fast mover": {"desc": "A Mover that moves forward twice, (NOT THE SAME AS THE LEAPER)."},
+    "converter": {"desc": "Attempts to convert the cell in front of it into the cell behind it."},
+    "physical trash": {"desc": "A Trash that pushes the cell in front of the direction the cell came in."},
 }
 
 subcategories = {
-    "movers": ["mover", "slow mover", "helix", "skidhi 90", "leaper", "hydra", "player mover", "purple mover", "bird", "bee", "advancer"],
+    "movers": ["mover", "slow mover", "fast mover", "helix", "skidhi 90", "leaper", "hydra", "player mover", "purple mover", "bird", "bee", "advancer"],
     "players": ["player", "player mover", "anti player", "pull player"],
     "nudgers": ["nudger"],
-    "other movers": ["inertia"],
+    "other movers": ["inertia", "rotatable inertia"],
     "crushers": ["crusher"],
     "pullers": ["puller", "slow puller", "leaper puller", "advancer"],
     "pushables": ["push", "zero directional", "one directional", "two directional", "slide", "three directional",
@@ -343,6 +352,8 @@ def add_ui(element, tag=None, menu="Game"):
         MainMenuUI.elements.append(element)
     if menu == "Adj":
         AdjMenuUI.elements.append(element)
+    if menu == "Settings":
+        SettingsMenuUI.elements.append(element)
 
 
 def select_cell(b, c):
@@ -433,6 +444,8 @@ def wrap_text(text, threshold):
             wrapped_lines.extend(line_segments)
     return wrapped_lines
 
+def get_random_cell_name():
+    return random.choice(list(celltypes.keys()))
 
 def draw_infobox():
     mouse_x, mouse_y = pygame.mouse.get_pos()
@@ -508,6 +521,24 @@ def draw_main_infobox():
 
         screen.blit(title_text, (mouse_x + 10, mouse_y + 5))
 
+def draw_settings_infobox():
+    mouse_x, mouse_y = pygame.mouse.get_pos()
+    btn_hovering = SettingsMenuUI.hover()
+
+    if btn_hovering is not None and btn_hovering.tag[0] in ["Settings"]:
+        title_text = font.render(btn_hovering.tag[1], True, (255,) * 3)
+
+        w = max(title_text.get_width() + 20, 150)
+        h = max(title_text.get_height() + 15, 50)
+
+        mouse_y = min(mouse_y, screen.get_height() - h)
+        mouse_x = min(mouse_x, screen.get_width() - w)
+
+        box_rect = pygame.Rect(mouse_x, mouse_y, w, h)
+        pygame.draw.rect(screen, (80,) * 3, box_rect)
+        pygame.draw.rect(screen, (60,) * 3, box_rect, width=5)
+
+        screen.blit(title_text, (mouse_x + 10, mouse_y + 5))
 
 def close_adj_menu(b):
     global adj_menu_name, selected_adj_index, adj_text_input
@@ -841,6 +872,10 @@ def quit_app(b):
 def go_to_credits(b):
     pass
 
+def go_to_settings(b):
+    global menu
+    menu = "Settings"
+
 
 play_button = ui.ImageButton(500, 240, 150, 150, images["mover"], compose(lambda x: play_sound("click"), go_to_game),
                              anchor="left-bottom")
@@ -850,6 +885,21 @@ add_ui(quit_button, ["Main Menu", "Quit"], menu="Main Menu")
 credits_button = ui.ImageButton(500, 40, 150, 150, images["push"],
                                 compose(lambda x: play_sound("click"), go_to_credits), anchor="left-bottom")
 add_ui(credits_button, ["Main Menu", "Credits"], menu="Main Menu")
+settings_button = ui.ImageButton(500, 240, 150, 150, images["transmitter"],
+                                compose(lambda x: play_sound("click"), go_to_settings), anchor="right-bottom")
+add_ui(settings_button, ["Main Menu", "Settings"], menu="Main Menu")
+
+#######################################
+
+add_ui(ui.Slider(
+    100, 50, 800, 50,
+    min_val=0, max_val=100, value=int(100),
+    on_change=lambda v: amb.set_volume(v/100),
+    font=font, label="Volume", label_width=30, value_width=60,
+    fill_color=(40,)*3,
+), ["Settings Control", f"slider_volume"], menu="Settings")
+set_back_button = ui.ImageButton(30, 30, 70, 70, pygame.transform.rotate(images["mover"], 180), compose(lambda x: play_sound("click"), quit_game), anchor="right")
+add_ui(set_back_button, ["Settings", "Back"], menu="Settings")
 
 def draw_text(x, y, direction, name, flags, text, outline=False, color=(255, 255, 255)):
     if flags.get("shadow"):
@@ -891,12 +941,6 @@ def draw_texter(x, y, direction, name, flags):
         return
     draw_text(x, y, direction, name, f, txt, color=flags["cell"].properties["Color"])
 
-def draw_disable_storage(x, y, direction, name, flags):
-    store = flags["cell"].storing_raw
-    if store is not None:
-        draw_cell(x, y, direction, store.name, flags)
-    draw_cell(x, y, direction, "effects/disabled", flags)
-
 def draw_single_cell_generator(x, y, direction, name, flags):
     f = dict(flags)
     f["raw"] = True
@@ -920,7 +964,6 @@ def draw_number(number_name, offset_y=0, offset_x=0, offset_size=1):
 draw_funcs = {
     "storage": draw_storage,
     "texter": draw_texter,
-    "disablestorage": draw_disable_storage,
     "single cell generator": draw_single_cell_generator,
     "meta": draw_storage,
 }
@@ -1138,10 +1181,6 @@ def reset_cells():
     perm_effects = []
     for x, y, cell in grid:
         if cell is not None:
-            if cell.name == "disablestorage":
-                cell = cell.storing_raw
-                grid[x, y] = cell
-                if cell is None: continue
             cell.oldx, cell.oldy = x, y
             cell.olddirection = cell._direction % 4
             cell._direction = cell._direction % 4
@@ -1188,7 +1227,6 @@ def tick():
 
 
 _light_mask = None
-
 
 def draw_bright_areas():
     global _light_mask
@@ -1254,8 +1292,30 @@ def update_ui_rotation(dt):
             element.angle = angle
 
 
+def cool_bg_thing():
+    global coolbgthings, last_spawn_time_of_coolbgthing
+
+    i = 0
+    while i < len(coolbgthings):
+        name, x, y = coolbgthings[i]
+        x += 1
+        coolbgthings[i][1] = x
+
+        if x >= screen.get_width():
+            coolbgthings.pop(i)
+        else:
+            i += 1
+
+    current_time = pygame.time.get_ticks()
+    if current_time - last_spawn_time_of_coolbgthing >= 500:
+        coolbgthings.append([pygame.transform.scale_by(images[get_random_cell_name()], 2), 0, random.randint(0, screen.get_height())])
+        last_spawn_time_of_coolbgthing = current_time
+
+    for j in coolbgthings:
+        screen.blit(j[0], (j[1], j[2] + math.sin(j[1] * 0.01) * 20))
+
 dt = 0
-amb = pygame.mixer.Sound("SMod Soundtrack.wav")
+amb = pygame.mixer.Sound(resource_path("SMod Soundtrack.wav"))
 amb.play(loops=-1)
 while running:
     key_buttons = pygame.key.get_pressed()
@@ -1330,6 +1390,8 @@ while running:
                     AdjMenuUI.click()
                 elif menu == "Main Menu":
                     MainMenuUI.click()
+                elif menu == "Settings":
+                    SettingsMenuUI.click()
     mouse_buttons = pygame.mouse.get_pressed()
     if menu == "Game" and adj_menu_name is None:
         if mouse_buttons == (False,) * 3:
@@ -1348,8 +1410,8 @@ while running:
         if mouse_buttons[2] and not GameUI.hover():
             if 0 <= mx < grid.width and 0 <= my < grid.height:
                 if grid[mx, my] is not None and cells.get_tag(grid[mx, my].name,
-                                                              "can_store") and place_type == "store" and grid[
-                    mx, my].storing is not None:
+                                                              "can_store") and place_type == "store" and \
+                        grid[mx, my].storing is not None:
                     grid[mx, my].storing = None
                 elif place_type == "place":
                     delete_cell(mx, my)
@@ -1390,11 +1452,16 @@ while running:
             adj_text_input.update_animation(dt)
         GameUI.update_animation(dt)
     if menu == "Main Menu":
-        screen.fill((30,) * 3)
+        screen.fill((20,) * 3)
+        cool_bg_thing()
         MainMenuUI.draw()
         screen.blit(title_logo, ((SCREEN_WIDTH - title_logo.get_width()) // 2 + 20,
                                  40 + math.sin(pygame.time.get_ticks() / 500) * 10))
         draw_main_infobox()
+    if menu == "Settings":
+        screen.fill((30,) * 3)
+        SettingsMenuUI.draw()
+        draw_settings_infobox()
     pygame.display.flip()
     dt = clock.tick(120) / 1000
     fps = 1 / dt
