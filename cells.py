@@ -47,12 +47,13 @@ chunks = {
     "gear": ["cw gear", "ccw gear", "slow cw gear", "slow ccw gear", "fast cw gear", "fast ccw gear", "180 gear"],
     "generator": ["cw generator", "ccw generator", "single cell generator"],
     "super generator": ["cw super generator", "ccw super generator"],
-    "mover": ["leaper", "hydra", "skidhi 90", "slow mover", "player mover", "crusher", "purple mover", "bird", "bee"],
+    "mover": ["leaper", "hydra", "skidhi 90", "slow mover", "player mover", "crusher", "purple mover", "bird", "bee", "fast mover"],
     "freezer": ["winter"],
     "thawer": ["summer"],
     "steer": ["player mover"],
     "player": ["anti player", "pull player"],
     "puller": ["advancer", "leaper puller", "slow puller"],
+    "inertia": ["rotatable inertia"],
 }
 
 tags = {}
@@ -207,7 +208,7 @@ class Vector:
 class EffectList:
     def __init__(self, d=None):
         d = d or {}
-        for var in ["frozen", "thawed", "enabled", "electrocuted", "coppered"]:
+        for var in ["frozen", "thawed", "enabled", "electrocuted", "coppered", "disabled"]:
             v = d.get(var, False)
             setattr(self, var, list(v) if isinstance(v, (list, tuple)) else v)
 
@@ -282,6 +283,37 @@ class Cell:
             properties=dict(self.properties)
         )
 
+def make_subtick(chunk,condition=None,directional=False,postqueue=None):
+    if not condition:
+        condition = lambda x,y,cell,direction: True
+    out = {"chunk":chunk,"directional":directional,"condition":condition}
+    if postqueue is not None:
+        out["postqueue"] = postqueue
+    return out
+
+subticks = [
+    make_subtick("thawer"),
+    make_subtick("freezer"),
+    make_subtick("enabler"),
+    make_subtick("disabler"),
+    make_subtick("electrocutor"),
+    make_subtick("copper"),
+    make_subtick("mirror",directional=True),
+    make_subtick("intaker",directional=True),
+    make_subtick("super generator",directional=True),
+    make_subtick("generator",directional=True),
+    make_subtick("gear", postqueue="postrotate"),
+    make_subtick("rotator", postqueue="postrotate"),
+    make_subtick("redirector"),
+    make_subtick("inertia"),
+    make_subtick("impulsor"),
+    make_subtick("repulsor"),
+    make_subtick("puller",directional=True),
+    make_subtick("steer"),
+    make_subtick("mover",directional=True),
+    make_subtick("nudger",directional=True),
+    make_subtick("player",directional=True),
+]
 
 class Grid:
     def __init__(self, width, height):
@@ -329,35 +361,27 @@ class Grid:
                 if cell is not None:
                     active_cells.append((x, y))
 
-        self.subtick("thawer", active_cells)
-        self.subtick("freezer", active_cells)
-        self.subtick("enabler", active_cells)
-        self.subtick("disabler", active_cells)
-        self.subtick("electrocutor", active_cells)
-        self.subtick("copper", active_cells)
-        self.subtick("inertia", active_cells)
-        self.directional_subtick("mirror", active_cells)
-        self.directional_subtick("intaker", active_cells)
-        self.directional_subtick("super generator", active_cells)
-        self.directional_subtick("generator", active_cells)
-        self.subtick("gear", active_cells)
-        run_queue("postrotate")
-        self.subtick("rotator", active_cells)
-        run_queue("postrotate")
-        self.subtick("redirector", active_cells)
-        self.subtick("impulsor", active_cells)
-        self.subtick("repulsor", active_cells)
-        self.directional_subtick("puller", active_cells)
-        self.subtick("steer", active_cells)
-        self.directional_subtick("mover", active_cells)
-        self.directional_subtick("nudger", active_cells)
-        self.directional_subtick("player", active_cells)
+        for subtick in subticks:
+            if subtick["directional"]:
+                self.directional_subtick(subtick["chunk"], subtick["condition"], active_cells)
+            else:
+                self.subtick(subtick["chunk"], subtick["condition"], active_cells)
+            if "postqueue" in subtick:
+                run_queue(subtick["postqueue"])
 
-    def directional_subtick(self, chunkid, active_cells):
+        for x, y, cell in self:
+            if cell is None: continue
+            if cell.name == "disablestorage":
+                c = cell.storing_raw
+                if c is None: continue
+                c.direction = cell.direction
+                self[x, y] = c
+
+    def directional_subtick(self, chunkid, condition, active_cells):
         for i in [0, 0.5, 2, 2.5, 1, 1.5, 3, 3.5]:
-            self.subtick(chunkid, active_cells, i)
+            self.subtick(chunkid, condition, active_cells, i)
 
-    def subtick(self, chunkid, active_cells, direction=None):
+    def subtick(self, chunkid, condition, active_cells, direction=None):
         func = getattr(self, "Do" + chunkid.title().replace(" ", ""))
         valid_names = {chunkid}.union(chunks.get(chunkid, []))
 
@@ -368,6 +392,7 @@ class Grid:
                     cell = col[y]
                     if cell is None or cell.name not in valid_names or cell.updated or cell.effects.frozen:
                         continue
+                    if not condition(x, y, cell, None): continue
                     self.run_cell(func, x, y, cell)
             return
 
@@ -386,6 +411,7 @@ class Grid:
                 cell = self.grid[x][y]
                 if cell is None or cell.name not in valid_names or cell.direction != direction or cell.updated or cell.effects.frozen:
                     continue
+                if not condition(x, y, cell, direction): continue
                 self.run_cell(func, x, y, cell)
 
     def get_tick_count(self, cell):
@@ -467,6 +493,9 @@ class Grid:
             if self[x, y].name == "helix":
                 queue_task("postrotate", lambda: self.DoHelix(x, y, amt))
                 return
+            if self[x, y].name == "rotatable inertia":
+                if self[x, y].vars.get("momentum"):
+                    self[x, y].vars["momentum"]["direction"].rotate(self.take_srot(self[x, y], amt))
             self.rotate_cell_raw(x, y, amt, side)
 
     def w_rotate_cell(self, x, y, amt, side=None):
@@ -509,6 +538,7 @@ class Grid:
         if get_tag(cell.name, "cannot_disable"): return
         oldx = cell.oldx if cell.oldx is not None else x
         oldy = cell.oldy if cell.oldy is not None else y
+        cell.effects.disabled = True
         new_cell = Cell(
             cell.direction,
             "disablestorage",
@@ -822,7 +852,7 @@ class Grid:
         elif cell.name == "lead":
             if math.isclose(side % 1, 0, abs_tol=1e-9):
                 flags["force"] = 0
-        elif cell.name == "inertia":
+        elif cell.name in ["inertia", "rotatable inertia"]:
             cell.vars["momentum"] = {"direction": direction, "force": flags["force"]}
 
         if cell.name in ("coin", "anti coin", "chocolate coin"):
@@ -1161,11 +1191,10 @@ class Grid:
             self.swap_cells(fx, fy, bx, by, side1, side2)
 
     def DoInertia(self, x, y, cell):
-        if cell.name == "inertia":
-            if (momentum:=cell.vars.get("momentum", None)) is not None:
-                ok = self.push_cell(x, y, momentum["direction"], {"force": momentum["force"]})
-                if not ok:
-                    cell.vars["momentum"] = None
+        if (momentum:=cell.vars.get("momentum", None)) is not None:
+            ok = self.push_cell(x, y, momentum["direction"], {"force": momentum["force"]})
+            if not ok:
+                cell.vars["momentum"] = None
 
     def DoNudger(self, x, y, cell):
         if cell.name == "nudger":
@@ -1179,6 +1208,20 @@ class Grid:
         elif cell.name == "slow mover":
             if self.ticks % 2 == 0:
                 self.push_cell(x, y, to_vec(cell.direction))
+        elif cell.name == "fast mover":
+            self.push_cell(x, y, to_vec(cell.direction))
+            px, py, _, _ = self.step_forward(x, y, to_vec(cell.direction))
+            if (pos:=self.locate(cell, px, py)) is not None:
+                px, py = pos
+                self.push_cell(px, py, to_vec(cell.direction))
+        elif cell.name == "super mover":
+            success = True
+            while success:
+                success = self.push_cell(x, y, to_vec(cell.direction))
+                px, py, _, _ = self.step_forward(x, y, to_vec(cell.direction))
+                if (pos:=self.locate(cell, px, py)) is None:
+                    break
+                x, y = pos
         elif cell.name == "bird":
             if cell.direction % 2 != 0:
                 ok = self.push_cell(x, y, to_vec(cell.direction))

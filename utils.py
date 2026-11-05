@@ -1,16 +1,22 @@
-import functools, pygame
-import math
+import builtins
 import functools
+import math
+import pygame
 from random import choice
-allerrors = [item for item in dir(locals()['__builtins__']) if "Error" in item or "Exception" in item]
+
+allerrors = [
+    item for item in dir(builtins)
+    if ("Error" in item or "Exception" in item)
+    and not item.endswith("Warning")
+]
 
 def compose(*functions):
     return functools.reduce(lambda f, g: lambda x: f(g(x)), functions)
-  
-def raise_random_error():
-    global allerrors
-    raise choice(allerrors)
 
+def raise_random_error():
+    error_name = choice(allerrors)
+    error_class = getattr(builtins, error_name)
+    raise error_class("You got omega trash'd")
 
 def get_darkest_color(surface: pygame.Surface):
     with pygame.PixelArray(surface) as pixel_array:
@@ -28,6 +34,8 @@ def get_darkest_color(surface: pygame.Surface):
 def distance(a: tuple, b: tuple):
     ax, ay = a
     bx, by = b
+    if ax is None: ax = bx
+    if ay is None: ay = by
     return math.sqrt((bx-ax)**2 + (by-ay)**2)
 
 def to4(radians):
