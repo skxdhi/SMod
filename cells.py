@@ -42,12 +42,19 @@ mover cell on the list
 """
 
 chunks = {
-    "rotator": ["cw 90 rotator", "ccw 90 rotator", "180 rotator", "random 90 rotator", "cw 45 rotator", "ccw 45 rotator", "random 45 rotator", "cw 135 rotator", "ccw 135 rotator", "random 135 rotator",
-                "skidhi 90", "random 22.5 rotator","ana rotator", "kata rotator", "half ana rotator", "half kata rotator", "cw 22.5 rotator", "ccw 22.5 rotator", "adjustable rotator"],
-    "gear": ["cw gear", "ccw gear", "slow cw gear", "slow ccw gear", "fast cw gear", "fast ccw gear", "180 gear"],
+    "rotator": ["cw 90 rotator", "ccw 90 rotator", "180 rotator",
+                "random 90 rotator", "cw 45 rotator", "ccw 45 rotator",
+                "random 45 rotator", "cw 135 rotator", "ccw 135 rotator",
+                "random 135 rotator","skidhi 90", "random 22.5 rotator",
+                "ana rotator", "kata rotator", "half ana rotator",
+                "half kata rotator", "cw 22.5 rotator", "ccw 22.5 rotator",
+                "adjustable rotator"],
+    "gear": ["cw gear", "ccw gear", "slow cw gear", "slow ccw gear",
+             "fast cw gear", "fast ccw gear", "180 gear"],
     "generator": ["cw generator", "ccw generator", "single cell generator"],
     "super generator": ["cw super generator", "ccw super generator"],
-    "mover": ["leaper", "hydra", "skidhi 90", "slow mover", "player mover", "crusher", "purple mover", "bird", "bee", "fast mover"],
+    "mover": ["leaper", "hydra", "skidhi 90", "slow mover", "player mover",
+              "crusher", "purple mover", "bird", "bee", "fast mover"],
     "freezer": ["winter"],
     "thawer": ["summer"],
     "steer": ["player mover"],
