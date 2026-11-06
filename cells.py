@@ -54,7 +54,7 @@ chunks = {
     "generator": ["cw generator", "ccw generator", "single cell generator"],
     "super generator": ["cw super generator", "ccw super generator"],
     "mover": ["leaper", "hydra", "skidhi 90", "slow mover", "player mover",
-              "crusher", "purple mover", "bird", "bee", "fast mover"],
+              "crusher", "purple mover", "bird", "bee", "fast mover","super mover"],
     "freezer": ["winter"],
     "thawer": ["summer"],
     "steer": ["player mover"],

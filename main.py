@@ -208,10 +208,11 @@ celltypes = {
     "fast mover": {"desc": "A Mover that moves forward twice, (NOT THE SAME AS THE LEAPER)."},
     "converter": {"desc": "Attempts to convert the cell in front of it into the cell behind it."},
     "physical trash": {"desc": "A Trash that pushes the cell in front of the direction the cell came in."},
+    "super mover": {"desc": "AMOVERTHATMOVESSUPERFASTAAAAAAAAAAAAAAAAA"},
 }
 
 subcategories = {
-    "movers": ["mover", "slow mover", "fast mover", "helix",
+    "movers": ["mover", "slow mover", "fast mover", "helix","super mover",
         "skidhi 90", "leaper", "hydra", "player mover", "purple mover",
                "bird", "bee", "advancer","fast mover"],
     "players": ["player", "player mover", "anti player", "pull player"],
