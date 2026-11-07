@@ -61,6 +61,8 @@ def lerp_angle(a, b, t):
 
 def polar_lerp(a: tuple, b: tuple, center: tuple, t):
     ra, rb = distance(a, center), distance(b, center)
+    if a == (None, None):
+        a = center
     ang_a = math.atan2(a[1] - center[1], a[0] - center[0])
     ang_b = math.atan2(b[1] - center[1], b[0] - center[0])
 
