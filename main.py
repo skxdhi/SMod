@@ -12,6 +12,7 @@ import utils
 from utils import compose, lerp, lerp_angle, polar_lerp
 
 import pygame
+from functools import lru_cache
 
 
 def resource_path(relative_path):
@@ -103,7 +104,7 @@ celltypes = {
         "desc": "Acts like a Weight cell on the front and an Anti Weight on the back; It doesnt do anything on the other sides."},
     "gold": {"desc": "Can only be pushed by orthogonal forces."},
     "lead": {"desc": "Can only be pushed by diagonal forces."},
-    "ghost": {"desc": "A Wall that cannot be generated."},
+    "ghost": {"desc": "A Wall that cannot be generated, like the Spirit cell."},
     "jam": {"desc": "When a Gear tries to move this cell, it will jam the gear instead (stop it)."},
     "straight diverger": {"desc": "Like a Curve Diverger thats bent to be straight."},
     "diode diverger": {"desc": "A Straight Diverger that can only diverge on its back side."},
@@ -208,13 +209,15 @@ celltypes = {
     "fast mover": {"desc": "A Mover that moves forward twice, (NOT THE SAME AS THE LEAPER)."},
     "converter": {"desc": "Attempts to convert the cell in front of it into the cell behind it."},
     "physical trash": {"desc": "A Trash that pushes the cell in front of the direction the cell came in."},
-    "super mover": {"desc": "AMOVERTHATMOVESSUPERFASTAAAAAAAAAAAAAAAAA"},
+    "super mover": {"desc": "A Mover that moves forward until it cannot anymore."},
+    "x generatable": {
+        "desc": "When this cell is being generated it instead makes the generator create another X Generatable with X lowered by 1, if X is 0 it acts like Ungeneratable."},
+    "spirit": {
+        "desc": "An Ungeneratable that does not exert force when generated."},
 }
 
 subcategories = {
-    "movers": ["mover", "slow mover", "fast mover", "helix","super mover",
-        "skidhi 90", "leaper", "hydra", "player mover", "purple mover",
-               "bird", "bee", "advancer","fast mover"],
+    "movers": ["mover", "slow mover", "fast mover", "super mover", "helix", "skidhi 90", "leaper", "hydra", "player mover", "purple mover", "bird", "bee", "advancer"],
     "players": ["player", "player mover", "anti player", "pull player"],
     "nudgers": ["nudger"],
     "other movers": ["inertia", "rotatable inertia"],
@@ -222,7 +225,7 @@ subcategories = {
     "pullers": ["puller", "slow puller", "leaper puller", "advancer"],
     "pushables": ["push", "zero directional", "one directional", "two directional", "slide",
                   "three directional", "random push", "arrow", "helix", "lichen"],
-    "coins": ["coin", "anti coin", "chocolate coin","coin diverger"],
+    "coins": ["coin", "anti coin", "chocolate coin"],
     "weights": ["weight", "anti weight", "bias", "gold", "lead", "nano weight", "anti nano weight"
                 , "bread", "adjustable weight"],
     "rotators": ["cw 90 rotator", "cw 45 rotator", "cw 135 rotator", "ccw 90 rotator", "ccw 45 rotator",
@@ -233,13 +236,12 @@ subcategories = {
                       "adjustable rotator"],
     "generators": ["generator", "cw generator", "ccw generator", "single cell generator"],
     "super generators": ["super generator", "cw super generator", "ccw super generator"],
-    "generatables": ["ungeneratable", "monogeneratable"],
+    "generatables": ["ungeneratable", "monogeneratable", "x generatable", "spirit"],
     "walls": ["wall", "ghost"],
-    "trashes": ["trash", "jump trash", "attack trash", "squish trash", "bulk trash", "omega trash"],
+    "trashes": ["trash", "jump trash", "attack trash", "physical trash", "squish trash", "bulk trash", "omega trash"],
     "enemies": ["enemy", "squish enemy", "bulk enemy", "bread"],
-    "divergers": ["curve diverger", "acute curve diverger", "obtuse curve diverger",
-                  "bicurve diverger", "straight diverger", "bistraight diverger",
-                  "diode diverger"],
+    "divergers": ["curve diverger", "acute curve diverger", "obtuse curve diverger", "bicurve diverger",
+                  "straight diverger", "bistraight diverger", "diode diverger"],
     "coin divergers": ["coin diverger"],
     "redirectors": ["redirector"],
     "freezers": ["freezer", "winter", "thawer", "summer"],
@@ -252,13 +254,14 @@ subcategories = {
     "repulsors": ["repulsor"],
     "impulsors": ["impulsor"],
     "other": ["texter"],
-    "brightness": ["light", "dark", "night"]
+    "brightness": ["light", "dark", "night"],
+    "converters": ["converter"]
 }
 
 categories = {
     "Base": [subcategories["pushables"], subcategories["weights"], subcategories["walls"], images["push"]],
     "Movers": [subcategories["movers"], subcategories["pullers"], subcategories["crushers"], subcategories["nudgers"], subcategories["players"], subcategories["other movers"], images["mover"]],
-    "Recreation": [subcategories["generators"], subcategories["super generators"], subcategories["generatables"],
+    "Recreation": [subcategories["generators"], subcategories["super generators"], subcategories["converters"], subcategories["generatables"],
                    images["generator"]],
     "Rotators": [subcategories["rotators"], subcategories["slow rotators"], subcategories["redirectors"],
                  subcategories["gears"],
@@ -326,6 +329,9 @@ adjustables = {
     ],
     "meta": [
         make_adj_element("Natural", 3, "Index"),
+    ],
+    "x generatable": [
+        make_adj_element("Natural", 2, "X"),
     ],
     "coin diverger": [
         make_adj_element("Integer", 1, "Cost"),
@@ -984,8 +990,23 @@ after_draw_funcs = {
     "adjustable rotator": draw_fraction("Numerator", "Denominator"),
     "random push": draw_fraction("Numerator", "Denominator"),
     "meta": draw_number("Index", offset_x=0.25, offset_y=0.25),
-    "coin diverger": draw_number("Cost", offset_x=0.25, offset_y=0.25),
+    "coin diverger": draw_number("Cost"),
+    "x generatable": draw_number("X"),
 }
+
+
+@lru_cache(maxsize=1000)
+def get_transformed_surf(surf, size, angle, has_shadow=False):
+    if not surf:
+        return None
+
+    transformed = pygame.transform.scale(surf, (size, size))
+    if angle != 0:
+        transformed = pygame.transform.rotate(transformed, angle)
+    if has_shadow:
+        transformed = shadow(transformed)
+
+    return transformed
 
 def draw_cell(x, y, direction, name, flags=None):
     flags = flags or {}
@@ -1016,12 +1037,10 @@ def draw_cell(x, y, direction, name, flags=None):
         center_y = screen_y + (cell_size // 2)
         rect = surf.get_rect(center=(center_x, center_y))
         if flags.get("shadow"):
-            surf = shadow(surf)
+            surf = get_transformed_surf(images[name], ccell_size, direction*-90, has_shadow=True)
         screen.blit(surf, rect)
         return
-    surf = pygame.transform.scale(images[name], (ccell_size, ccell_size))
-    angle = direction * -90
-    surf = pygame.transform.rotate(surf, angle)
+    surf = get_transformed_surf(images[name], ccell_size, direction*-90)
 
     center_x = screen_x + (cell_size // 2)
     center_y = screen_y + (cell_size // 2)
@@ -1090,6 +1109,10 @@ def draw_grid():
         draw_cell(draw_x, draw_y,
                   lerp_angle(cell.olddirection, cell._direction, lerp_time),
                   cell.name, flags={"x": x, "y": y, "cell": cell, })
+        if cell.oldcell is not None:
+            draw_cell(draw_x, draw_y,
+                      cell.oldcell.direction, cell.oldcell.name,
+                      flags={"eaten": True, "x": None, "y": None, "cell": cell.oldcell,})
         if cell.vars["wrot"] != 0:
             draw_cell(draw_x, draw_y,
                       0,
@@ -1196,6 +1219,7 @@ def reset_cells():
             cell.updated = False
             cell.eaten = []
             cell.anim_center = None
+            cell.oldcell = None
             for effect in vars(cell.effects):
                 if effect not in perm_effects:
                     setattr(cell.effects, effect, False)
@@ -1324,7 +1348,7 @@ def cool_bg_thing():
         screen.blit(j[0], (j[1], j[2] + math.sin(j[1] * 0.01) * 20))
 
 dt = 0
-amb = pygame.mixer.Sound(resource_path("SMod Soundtrack.wav"))
+amb = audio["Combine Like Terms"]
 amb.play(loops=-1)
 while running:
     key_buttons = pygame.key.get_pressed()
