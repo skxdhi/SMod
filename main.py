@@ -1351,6 +1351,7 @@ def cool_bg_thing():
 dt = 0
 amb = audio[random.choice(["Combine Like Terms","Cells And More Cells"])]
 amb.play(loops=-1)
+
 while running:
     key_buttons = pygame.key.get_pressed()
     if key_buttons[pygame.K_LEFT]:
@@ -1462,6 +1463,8 @@ while running:
             camera_x += cam_speed
         if key_buttons[pygame.K_a]:
             camera_x -= cam_speed
+        if key_buttons[pygame.K_v]:
+            print(save_code())
 
     screen.fill((0,) * 3)
     if menu == "Game":
