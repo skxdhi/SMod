@@ -234,7 +234,8 @@ subcategories = {
     "slow rotators": ["cw 22.5 rotator", "ccw 22.5 rotator", "random 22.5 rotator", "ana rotator",
                       "half ana rotator", "kata rotator", "half kata rotator",
                       "adjustable rotator"],
-    "generators": ["generator", "cw generator", "ccw generator", "single cell generator"],
+    "generators": ["generator", "cw generator", "ccw generator",
+                   "single cell generator"],
     "super generators": ["super generator", "cw super generator", "ccw super generator"],
     "generatables": ["ungeneratable", "monogeneratable", "x generatable", "spirit"],
     "walls": ["wall", "ghost"],
@@ -1348,7 +1349,7 @@ def cool_bg_thing():
         screen.blit(j[0], (j[1], j[2] + math.sin(j[1] * 0.01) * 20))
 
 dt = 0
-amb = audio["Combine Like Terms"]
+amb = audio[random.choice(["Combine Like Terms","Cells And More Cells"])]
 amb.play(loops=-1)
 while running:
     key_buttons = pygame.key.get_pressed()
