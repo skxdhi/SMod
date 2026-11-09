@@ -146,6 +146,8 @@ add_tag("isdestroyer", {
     "enemy": basic_destroy,
     "bulk enemy": basic_destroy,
     "bread": basic_destroy,
+    "dextrophysical trash": basic_destroy,
+    "levophysical trash": basic_destroy,
 })
 
 add_tag("collectable", {
@@ -170,22 +172,10 @@ def to_dir(vector):
     mag = vector.magnitude
     if mag == 0:
         return 0
-
-    ux = round(vector.x / mag)
-    uy = round(vector.y / mag)
-
-    if ux == 1 and uy == 0: return 0
-    if ux == 1 and uy == 1: return 0.5
-    if ux == 0 and uy == 1: return 1
-    if ux == -1 and uy == 1: return 1.5
-    if ux == -1 and uy == 0: return 2
-    if ux == -1 and uy == -1: return 2.5
-    if ux == 0 and uy == -1: return 3
-    if ux == 1 and uy == -1: return 3.5
-
-    return math.atan2(vector.y, vector.x)
+    return (math.atan2(vector.y, vector.x) / math.pi * 2) % 4
 
 def to_side(cell_dir, f_dir):
+    f_dir = round(f_dir * 2) / 2
     return (f_dir % 4 - cell_dir % 4 + 2) % 4
 
 class Vector:
@@ -207,14 +197,21 @@ class Vector:
         return math.sqrt(self.x**2 + self.y**2)
 
     def rotate(self, degrees):
+        vec = self.rotated(degrees)
+        self.x = vec.x
+        self.y = vec.y
+
+    def rotated(self, degrees):
         degrees *= 90
         radians = math.radians(degrees)
         cos_theta = math.cos(radians)
         sin_theta = math.sin(radians)
         new_x = self.x * cos_theta - self.y * sin_theta
         new_y = self.x * sin_theta + self.y * cos_theta
-        self.x = round(new_x)
-        self.y = round(new_y)
+        return Vector(round(new_x), round(new_y))
+
+    def copy(self):
+        return Vector(self.x, self.y)
 
 class EffectList:
     def __init__(self, d=None):
@@ -730,6 +727,29 @@ class Grid:
                 return False
         return self.push_cell(x, y, Vector(direction.x, direction.y), flags)
 
+    def nudge_cell_to(self, x, y, tx, ty, flags=None, direction=None):
+        flags = flags if flags is not None else {}
+        flags["nudge"] = True
+        flags["force"] = flags.get("force", 1)
+        flags["lastpos"] = (x, y)
+        cell = self[x, y]
+        if cell is None: return False
+        front = self[tx, ty]
+        if direction is None:
+            direction = Vector(tx - x, ty - y)
+        if front is not None:
+            side = to_side(front.direction, to_dir(direction))
+            if not nudge_into(front, side):
+                return False
+        _, _, _, _, success = self.handle_push(tx, ty, direction, flags)
+        if flags["force"] <= 0:
+            return False
+        if self[*flags["lastpos"]] is not None:
+            self[tx, ty] = self[x, y]
+            self[x, y] = None
+        run_queue("postpush")
+        return True
+
     def push_cell(self, x, y, direction, flags=None):
         orig_x, orig_y = x, y
         cx, cy = x, y
@@ -826,9 +846,9 @@ class Grid:
     def handle_push(self, x, y, direction, flags):
         cell = self[x, y]
         if cell is None:
-            return x, y, direction, flags, False
+            return x, y, direction, flags, True
 
-        old_direction = Vector(direction.x, direction.y)
+        old_direction = direction.copy()
         crossed = []
         nx, ny, direction, _ = self.step_forward(x, y, direction, traveler=cell, passed=crossed)
         flags["toll"] = total_toll(crossed)
@@ -873,6 +893,8 @@ class Grid:
             raise_random_error()
         elif cell.name == "weight":
             flags["force"] -= 1
+        elif cell.name == "a weight":
+            flags["force"] -= "A" # wait, you thought i was kidding? (or should i say, WEIGHT)
         elif cell.name == "adjustable weight":
             flags["force"] -= cell.properties["Numerator"]/cell.properties["Denominator"]
         elif cell.name == "anti weight":
@@ -939,7 +961,6 @@ class Grid:
             else:
                 flags["break"] = True
             play_sound("destroy")
-
         elif cell.name == "squish trash":
             v = deepcopy(flags)
             v["test"] = True
@@ -952,8 +973,11 @@ class Grid:
                     flags["replacecell"] = None
                 flags["break"] = True
                 play_sound("destroy")
-
-        elif cell.name == "physical trash":
+        elif cell.name in ["physical trash", "dextrophysical trash", "levophysical trash"]:
+            rotation = {
+                "dextrophysical trash": 1,
+                "levophysical trash": -1,
+            }.get(cell.name, 0)
             if lastpos is not None:
                 self.eat_cell(*lastpos, x, y)
                 self[*lastpos] = None
@@ -962,10 +986,10 @@ class Grid:
             flags["break"] = True
             play_sound("destroy")
 
-            nx, ny, ndir, _ = self.step_forward(x, y, direction)
+            nx, ny, ndir, _ = self.step_forward(x, y, direction.rotated(-rotation))
             queue_task("postpush", lambda: self.push_cell(nx, ny, ndir))
 
-        elif cell.name == "lichen":
+        if cell.name == "lichen":
             self.eat_cell(x, y, x, y)
             self[x, y] = None
             flags["break"] = True
@@ -1000,7 +1024,7 @@ class Grid:
                 self[x, y] = downcopy
                 self.push_cell(x, y, to_vec(down_dir), {"replacecell": None, "ignore_first": True})
 
-        elif cell.name in ["enemy", "bulk enemy", "bread"]:
+        if cell.name in ["enemy", "bulk enemy", "bread"]:
             can_collide = True
             if cell.name == "bread":
                 if cell.properties["Numerator"]/cell.properties["Denominator"] > flags["force"]:
@@ -1019,7 +1043,6 @@ class Grid:
                 else:
                     flags["break"] = True
                 play_sound("destroy")
-
         elif cell.name == "squish enemy":
             v = deepcopy(flags)
             v["test"] = True
@@ -1105,9 +1128,8 @@ class Grid:
             for c, amount in flags["tolls"]:
                 c.vars["coins"] = c.vars.get("coins", 0) - amount
             for px, py, pcx, pcy in to_pull:
-                if self[px, py] is None: continue
-                self[pcx, pcy] = self[px, py]
-                self[px, py] = None
+                if not self.nudge_cell_to(px, py, pcx, pcy):
+                    break
 
         run_queue("postpull")
 
@@ -1118,12 +1140,14 @@ class Grid:
         if cell is None:
             return x, y, direction, flags, False
 
+        pull_dir = direction.copy()
         front_crossed = []
         back_crossed = []
-        nx, ny, front_direction, front_cell = self.step_forward(x, y, Vector(direction.x, direction.y), traveler=cell, passed=front_crossed)
-        bx, by, direction, _ = self.step_backward(x, y, Vector(direction.x, direction.y), passed=back_crossed)
+
+        fx, fy, fdir, _ = self.step_forward(x, y, pull_dir.copy(), traveler=cell, passed=front_crossed)
+        bx, by, bdir, _ = self.step_backward(x, y, pull_dir.copy(), passed=back_crossed)
         back_cell = self[bx, by]
-        side = to_side(cell.direction, to_dir(direction))
+        side = to_side(cell.direction, to_dir(pull_dir))
 
         lastpos = flags["lastpos"]
         if lastpos == (None, None):
@@ -1142,31 +1166,8 @@ class Grid:
             else:
                 tolls.append((back_cell, back_toll))
 
-        if lastpos is None:
-            flags["frontpos"] = (nx, ny)
-            flags["frontdir"] = front_direction
-            front_cell = self[nx, ny]
-            if not (0 <= nx < self.width and 0 <= ny < self.height):
-                success = False
-            elif front_cell is not None:
-                if not nudge_into(front_cell, to_side(front_cell.direction, to_dir(direction))):
-                    success = False
-                elif not flags.get("test", False):
-                    if front_cell.name == "enemy":
-                        self.eat_cell(nx, ny, nx, ny)
-                        self[nx, ny] = None
-                    self.eat_cell(x, y, nx, ny)
-                    self[x, y] = None
-                    play_sound("destroy")
-                    if front_cell.name == "jump trash":
-                        queue_task("postpull", lambda: self.push_cell(nx, ny, front_direction, {"ignore_first": True}))
-                    if front_cell.name == "attack trash":
-                        queue_task("postpull", lambda: self.push_cell(nx, ny, -front_direction, {"ignore_first": True}))
-                    if "physical" in front_cell.name:
-                        nx, ny, ndir, _ = self.step_forward(x, y, direction)
-                        queue_task("postpush", lambda: self.push_cell(nx, ny, ndir))
-                    if "bulk" in front_cell.name:
-                        success = False
+        flags["frontpos"] = (fx, fy)
+        flags["frontdir"] = fdir
 
         if is_unbreakable(cell, "pull", side):
             flags["force"] = 0
@@ -1191,6 +1192,8 @@ class Grid:
 
         elif cell.name == "weight":
             flags["force"] -= 1
+        elif cell.name == "a weight":
+            flags["force"] -= "A" # wait, you thought i was kidding? (or should i say, WEIGHT)
         elif cell.name == "adjustable weight":
             flags["force"] -= cell.properties["Numerator"] / cell.properties["Denominator"]
         elif cell.name == "anti weight":
@@ -1215,12 +1218,15 @@ class Grid:
             if back_cell.name in ["puller", "advancer"] and not cell.effects.frozen:
                 if back_cell.direction == cell.direction:
                     flags["force"] += 1
-                if back_cell.direction == (cell.direction+2)%4:
+                if back_cell.direction == (cell.direction + 2) % 4:
                     flags["force"] -= 1
 
         if flags["force"] <= 0: success = False
 
-        return bx, by, direction, flags, success
+        if success and not flags.get("break", False) and self[x, y] is not None:
+            self[x, y].direction = self[x, y].direction + to_dir(fdir) - to_dir(pull_dir)
+
+        return bx, by, bdir, flags, success
 
     def swap_cells(self, x1, y1, x2, y2, side1, side2):
         a, b = self[x1, y1], self[x2, y2]

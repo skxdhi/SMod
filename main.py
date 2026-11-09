@@ -214,6 +214,9 @@ celltypes = {
         "desc": "When this cell is being generated it instead makes the generator create another X Generatable with X lowered by 1, if X is 0 it acts like Ungeneratable."},
     "spirit": {
         "desc": "An Ungeneratable that does not exert force when generated."},
+    "dextrophysical trash": {"desc": "A Trash that pushes the cell to the right of the direction the cell came in."},
+    "levophysical trash": {"desc": "A Trash that pushes the cell to the left of the direction the cell came in."},
+    "a weight": {"desc": "Just your average weight that subtracts the letter \"a\" from forces."},
 }
 
 subcategories = {
@@ -227,7 +230,7 @@ subcategories = {
                   "three directional", "random push", "arrow", "helix", "lichen"],
     "coins": ["coin", "anti coin", "chocolate coin"],
     "weights": ["weight", "anti weight", "bias", "gold", "lead", "nano weight", "anti nano weight"
-                , "bread", "adjustable weight"],
+                , "bread", "adjustable weight", "a weight"],
     "rotators": ["cw 90 rotator", "cw 45 rotator", "cw 135 rotator", "ccw 90 rotator", "ccw 45 rotator",
                  "ccw 135 rotator", "random 90 rotator", "random 45 rotator", "random 135 rotator",
                  "180 rotator"],
@@ -239,7 +242,7 @@ subcategories = {
     "super generators": ["super generator", "cw super generator", "ccw super generator"],
     "generatables": ["ungeneratable", "monogeneratable", "x generatable", "spirit"],
     "walls": ["wall", "ghost"],
-    "trashes": ["trash", "jump trash", "attack trash", "physical trash", "squish trash", "bulk trash", "omega trash"],
+    "trashes": ["trash", "jump trash", "attack trash", "physical trash", "dextrophysical trash", "levophysical trash", "squish trash", "bulk trash", "omega trash"],
     "enemies": ["enemy", "squish enemy", "bulk enemy", "bread"],
     "divergers": ["curve diverger", "acute curve diverger", "obtuse curve diverger", "bicurve diverger",
                   "straight diverger", "bistraight diverger", "diode diverger"],
@@ -1342,7 +1345,7 @@ def cool_bg_thing():
 
     current_time = pygame.time.get_ticks()
     if current_time - last_spawn_time_of_coolbgthing >= 500:
-        coolbgthings.append([pygame.transform.scale_by(images[get_random_cell_name()], 2), 0, random.randint(0, screen.get_height())])
+        coolbgthings.append([pygame.transform.scale_by(images[get_random_cell_name()], 2), -32, random.randint(0, screen.get_height())])
         last_spawn_time_of_coolbgthing = current_time
 
     for j in coolbgthings:
