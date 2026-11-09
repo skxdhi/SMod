@@ -1468,6 +1468,8 @@ while running:
             camera_x -= cam_speed
         if key_buttons[pygame.K_v]:
             print(save_code())
+        if key_buttons[pygame.K_l]:
+            load_code(input("code>>"))
 
     screen.fill((0,) * 3)
     if menu == "Game":
