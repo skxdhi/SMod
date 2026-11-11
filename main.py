@@ -214,6 +214,10 @@ celltypes = {
         "desc": "When this cell is being generated it instead makes the generator create another X Generatable with X lowered by 1, if X is 0 it acts like Ungeneratable."},
     "spirit": {
         "desc": "An Ungeneratable that does not exert force when generated."},
+    "dextrophysical trash": {"desc": "A Trash that pushes the cell to the right of the direction the cell came in."},
+    "levophysical trash": {"desc": "A Trash that pushes the cell to the left of the direction the cell came in."},
+    "a weight": {"desc": "Just your average weight that subtracts the letter \"a\" from forces."},
+    "metageneratable": {"desc": "Like an X Generatable, but index 0 is the cell inside of it instead."},
 }
 
 subcategories = {
@@ -227,7 +231,7 @@ subcategories = {
                   "three directional", "random push", "arrow", "helix", "lichen"],
     "coins": ["coin", "anti coin", "chocolate coin"],
     "weights": ["weight", "anti weight", "bias", "gold", "lead", "nano weight", "anti nano weight"
-                , "bread", "adjustable weight"],
+                , "bread", "adjustable weight", "a weight"],
     "rotators": ["cw 90 rotator", "cw 45 rotator", "cw 135 rotator", "ccw 90 rotator", "ccw 45 rotator",
                  "ccw 135 rotator", "random 90 rotator", "random 45 rotator", "random 135 rotator",
                  "180 rotator"],
@@ -237,9 +241,9 @@ subcategories = {
     "generators": ["generator", "cw generator", "ccw generator",
                    "single cell generator"],
     "super generators": ["super generator", "cw super generator", "ccw super generator"],
-    "generatables": ["ungeneratable", "monogeneratable", "x generatable", "spirit"],
+    "generatables": ["ungeneratable", "monogeneratable", "x generatable", "metageneratable", "spirit"],
     "walls": ["wall", "ghost"],
-    "trashes": ["trash", "jump trash", "attack trash", "physical trash", "squish trash", "bulk trash", "omega trash"],
+    "trashes": ["trash", "jump trash", "attack trash", "physical trash", "dextrophysical trash", "levophysical trash", "squish trash", "bulk trash", "omega trash"],
     "enemies": ["enemy", "squish enemy", "bulk enemy", "bread"],
     "divergers": ["curve diverger", "acute curve diverger", "obtuse curve diverger", "bicurve diverger",
                   "straight diverger", "bistraight diverger", "diode diverger"],
@@ -333,6 +337,9 @@ adjustables = {
     ],
     "x generatable": [
         make_adj_element("Natural", 2, "X"),
+    ],
+    "metageneratable": [
+        make_adj_element("Natural", 2, "Meta"),
     ],
     "coin diverger": [
         make_adj_element("Integer", 1, "Cost"),
@@ -813,15 +820,7 @@ def toggle_sim(b):
 
 def step_sim(b):
     global stepping, sim_running, sim_button, lerp_time
-    if stepping: return
-    if sim_running:
-        toggle_sim(sim_button)
-        return
     stepping = True
-    lerp_time = 0
-    if sim_running:
-        toggle_sim(sim_button)
-    tick()
 
 
 def save_state(b):
@@ -924,15 +923,14 @@ def draw_text(x, y, direction, name, flags, text, outline=False, color=(255, 255
     f = dict(flags)
     f["raw"] = True
     f["nearest"] = True
+    scale = cell_size / 32 * f.get("size", 1)
     if outline:
-        f["source"] = small_font.render(text, False, outline)
-        f["source"] = pygame.transform.scale_by(f["source"], (f.get("size", 1), f.get("size", 1)))
+        f["source"] = get_text_surf(text, outline, scale)
         px = max(1, round(cell_size / 32))
         step = px / cell_size
         for dx, dy in ((0, 1), (0, -1), (-1, 0), (1, 0), (1, 1), (1, -1), (-1, 1), (-1, -1)):
             draw_cell(x + dx * step, y + dy * step, direction, name, f)
-    f["source"] = small_font.render(text, False, color)
-    f["source"] = pygame.transform.scale_by(f["source"], (f.get("size", 1), f.get("size", 1)))
+    f["source"] = get_text_surf(text, color, scale)
     draw_cell(x, y, direction, name, f)
 
 def draw_storage(x, y, direction, name, flags):
@@ -982,6 +980,7 @@ draw_funcs = {
     "texter": draw_texter,
     "single cell generator": draw_single_cell_generator,
     "meta": draw_storage,
+    "metageneratable": draw_storage,
 }
 
 after_draw_funcs = {
@@ -993,10 +992,11 @@ after_draw_funcs = {
     "meta": draw_number("Index", offset_x=0.25, offset_y=0.25),
     "coin diverger": draw_number("Cost"),
     "x generatable": draw_number("X"),
+    "metageneratable": draw_number("Meta", offset_x=0.25, offset_y=0.25),
 }
 
 
-@lru_cache(maxsize=1000)
+@lru_cache(maxsize=4096)
 def get_transformed_surf(surf, size, angle, has_shadow=False):
     if not surf:
         return None
@@ -1008,6 +1008,13 @@ def get_transformed_surf(surf, size, angle, has_shadow=False):
         transformed = shadow(transformed)
 
     return transformed
+
+@lru_cache(maxsize=4096)
+def get_text_surf(text, color, scale):
+    surf = small_font.render(text, False, color)
+    if scale != 1:
+        surf = pygame.transform.scale_by(surf, (scale, scale))
+    return surf
 
 def draw_cell(x, y, direction, name, flags=None):
     flags = flags or {}
@@ -1029,11 +1036,8 @@ def draw_cell(x, y, direction, name, flags=None):
     if flags.get("size") is not None:
         ccell_size = round(cell_size * flags.get("size"))
     if ccell_size <= 0: return
-
     if flags.get("source"):
-        surf = flags["source"].copy()
-        scale = pygame.transform.scale_by if flags.get("nearest") else pygame.transform.smoothscale_by
-        surf = scale(surf, (cell_size / 32, cell_size / 32))
+        surf = flags["source"]
         center_x = screen_x + (cell_size // 2)
         center_y = screen_y + (cell_size // 2)
         rect = surf.get_rect(center=(center_x, center_y))
@@ -1041,13 +1045,11 @@ def draw_cell(x, y, direction, name, flags=None):
             surf = get_transformed_surf(images[name], ccell_size, direction*-90, has_shadow=True)
         screen.blit(surf, rect)
         return
-    surf = get_transformed_surf(images[name], ccell_size, direction*-90)
+    surf = get_transformed_surf(images[name], ccell_size, direction*-90, has_shadow=flags.get("shadow", False))
 
     center_x = screen_x + (cell_size // 2)
     center_y = screen_y + (cell_size // 2)
     rect = surf.get_rect(center=(center_x, center_y))
-    if flags.get("shadow"):
-        surf = shadow(surf)
     screen.blit(surf, rect)
     if (f := after_draw_funcs.get(name)) and not flags.get("raw"):
         f(x, y, direction, name, flags)
@@ -1060,10 +1062,8 @@ def draw_ghost_cell(x, y, direction, name):
     center_x = int((x * cell_size) + (cell_size // 2) - camera_x)
     center_y = int((y * cell_size) + (cell_size // 2) - camera_y)
 
-    surf = pygame.transform.scale(images[name], (cell_size, cell_size))
+    surf = get_transformed_surf(images[name], cell_size, direction * -90).copy()
     surf.set_alpha(128)
-    angle = direction * -90
-    surf = pygame.transform.rotate(surf, angle)
     rect = surf.get_rect(center=(center_x, center_y))
     screen.blit(surf, rect)
 
@@ -1082,121 +1082,117 @@ def shadow(surf, opacity=30):
     return copy
 
 
-def draw_grid():
-    for x, y, cell in grid:
-        draw_cell(x, y, 0, "bg")
 
-    for (cell, trashpos) in grid.eaten:
+def draw_grid():
+    margin = 2
+    start_x = max(0, int(camera_x // cell_size) - margin)
+    start_y = max(0, int(camera_y // cell_size) - margin)
+    end_x = min(grid.width, int((camera_x + SCREEN_WIDTH) // cell_size) + margin + 1)
+    end_y = min(grid.height, int((camera_y + SCREEN_HEIGHT) // cell_size) + margin + 1)
+
+    for x in range(start_x, end_x):
+        for y in range(start_y, end_y):
+            draw_cell(x, y, 0, "bg")
+
+    for cell, trashpos in grid.eaten:
         if cell is None: continue
         draw_cell(lerp(cell.oldx, trashpos[0], lerp_time), lerp(cell.oldy, trashpos[1], lerp_time),
                   lerp_angle(cell.olddirection, cell._direction, lerp_time), cell.name,
-                  flags={"eaten": True, "x": None, "y": None, "cell": cell,})
-    for x, y, cell in grid:
-        if cell is None: continue
+                  flags={"eaten": True, "x": None, "y": None, "cell": cell})
 
-        draw_x, draw_y = lerp(cell.oldx, x, lerp_time), lerp(cell.oldy, y, lerp_time)
-        if cell.anim_center is not None:
-            draw_x, draw_y = polar_lerp((cell.oldx, cell.oldy), (x, y), cell.anim_center, lerp_time)
+    for x in range(start_x, end_x):
+        for y in range(start_y, end_y):
+            cell = grid[x, y]
+            if cell is None: continue
 
-        draw_cell(draw_x + 0.25, draw_y + 0.25,
-                  lerp_angle(cell.olddirection, cell._direction, lerp_time),
-                  cell.name,
-                  flags={"x": x, "y": y, "cell": cell, "shadow": True}
-        )
-        for eaten in cell.eaten:
-            draw_cell(lerp(eaten.oldx, x, lerp_time), lerp(eaten.oldy, y, lerp_time),
-                      lerp_angle(eaten.olddirection, eaten._direction, lerp_time), eaten.name,
-                      flags={"eaten": True, "x": None, "y": None, "cell": eaten, })
-        draw_cell(draw_x, draw_y,
-                  lerp_angle(cell.olddirection, cell._direction, lerp_time),
-                  cell.name, flags={"x": x, "y": y, "cell": cell, })
-        if cell.oldcell is not None:
+            draw_x, draw_y = lerp(cell.oldx, x, lerp_time), lerp(cell.oldy, y, lerp_time)
+            if cell.anim_center is not None:
+                draw_x, draw_y = polar_lerp((cell.oldx, cell.oldy), (x, y), cell.anim_center, lerp_time)
+
+            draw_cell(draw_x + 0.25, draw_y + 0.25,
+                      lerp_angle(cell.olddirection, cell._direction, lerp_time),
+                      cell.name, flags={"x": x, "y": y, "cell": cell, "shadow": True})
+            for eaten in cell.eaten:
+                draw_cell(lerp(eaten.oldx, x, lerp_time), lerp(eaten.oldy, y, lerp_time),
+                          lerp_angle(eaten.olddirection, eaten._direction, lerp_time), eaten.name,
+                          flags={"eaten": True, "x": None, "y": None, "cell": eaten})
             draw_cell(draw_x, draw_y,
-                      cell.oldcell.direction, cell.oldcell.name,
-                      flags={"eaten": True, "x": None, "y": None, "cell": cell.oldcell,})
-        if cell.vars["wrot"] != 0:
-            draw_cell(draw_x, draw_y,
-                      0,
-                      "ana rotated" if cell.vars["wrot"] > 0 else "kata rotated", flags={"x": x, "y": y})
-        if cell.vars["srot"] != 0:
-            draw_cell(draw_x, draw_y,
-                      0,
-                      "cw 22.5 rotated" if cell.vars["srot"] > 0 else "ccw 22.5 rotated", flags={"x": x, "y": y})
-            srot = round(cell.vars["srot"], 3)
-            if srot > 0:
-                srot = "+"+str(srot)
-            elif srot < 0:
-                srot = "-"+str(-srot)
-            else:
-                srot = ""
-            draw_text(draw_x, draw_y-0.1,
-                      0,
-                      "cw 22.5 rotated" if cell.vars["srot"] > 0 else "ccw 22.5 rotated", {"x": x, "y": y, "size": 0.6},
-                      srot, outline=(225, 78, 46) if cell.vars["srot"] > 0 else (46, 168, 219))
-        if cell.vars["coins"] != 0:
-            draw_cell(draw_x, draw_y,
-                      0,
-                      "coins", flags={"x": x, "y": y})
-            draw_text(draw_x, draw_y-0.325,
-                      0,
-                      "coins", {"x": x, "y": y},
-                      str(cell.vars["coins"]))
-        for effect in vars(cell.effects):
-            if not getattr(cell.effects, effect): continue
-            if isinstance(effect, list): effect = effect[0]
-            draw_cell(draw_x, draw_y,
-                      0,
-                      f"effects/{effect}", flags={"x": x, "y": y})
+                      lerp_angle(cell.olddirection, cell._direction, lerp_time),
+                      cell.name, flags={"x": x, "y": y, "cell": cell})
+            if cell.oldcell is not None:
+                draw_cell(draw_x, draw_y, cell.oldcell.direction, cell.oldcell.name,
+                          flags={"eaten": True, "x": None, "y": None, "cell": cell.oldcell})
+            if cell.vars["wrot"] != 0:
+                draw_cell(draw_x, draw_y, 0,
+                          "ana rotated" if cell.vars["wrot"] > 0 else "kata rotated", flags={"x": x, "y": y})
+            if cell.vars["srot"] != 0:
+                draw_cell(draw_x, draw_y, 0,
+                          "cw 22.5 rotated" if cell.vars["srot"] > 0 else "ccw 22.5 rotated", flags={"x": x, "y": y})
+                srot = round(cell.vars["srot"], 3)
+                if srot > 0:
+                    srot = "+" + str(srot)
+                elif srot < 0:
+                    srot = "-" + str(-srot)
+                else:
+                    srot = ""
+                draw_text(draw_x, draw_y-0.1, 0,
+                          "cw 22.5 rotated" if cell.vars["srot"] > 0 else "ccw 22.5 rotated",
+                          {"x": x, "y": y, "size": 0.6}, srot,
+                          outline=(225, 78, 46) if cell.vars["srot"] > 0 else (46, 168, 219))
+            if cell.vars["coins"] != 0:
+                draw_cell(draw_x, draw_y, 0, "coins", flags={"x": x, "y": y})
+                draw_text(draw_x, draw_y-0.325, 0, "coins", {"x": x, "y": y}, str(cell.vars["coins"]))
+            for effect in vars(cell.effects):
+                if not getattr(cell.effects, effect): continue
+                if isinstance(effect, list): effect = effect[0]
+                draw_cell(draw_x, draw_y, 0, f"effects/{effect}", flags={"x": x, "y": y})
+
+
+def cell_to_data(cell, names):
+    v = deepcopy(cell.vars)
+    stored = cell.storing_raw
+    return {
+        "n": names.index(cell.name),
+        "d": cell._direction,
+        "p": cell.properties,
+        "v": v,
+        "e": vars(cell.effects),
+        "s": cell_to_data(stored, names) if stored is not None and stored.name in names else None,
+    }
+
+def cell_from_data(d, names):
+    c = Cell(d["d"], names[d["n"]], properties=dict(d.get("p", {})))
+    v = dict(d.get("v", {}))
+    c.vars.update(v)
+    c.effects = cells.EffectList(d.get("e", {}))
+    if d.get("s") is not None:
+        c.vars["storing"] = cell_from_data(d["s"], names)
+    return c
 
 
 def save_code():
-    code = []
-    code_type = "S1"
-    cell_type_list = list(celltypes.keys())
-
-    for x, y, cell in grid:
-        if cell is None:
-            continue
-
-        pos = x + (y * grid.width)
-        cell_id = cell_type_list.index(cell.name)
-
-        state = vars(cell).copy()
-        state["name"] = cell_id
-        state["effects"] = vars(cell.effects)
-
-        code.append([pos, state])
-
-    json_str = json.dumps(code, separators=(',', ':'))
-    compressed = zlib.compress(json_str.encode('utf-8'))
-    b64_str = base64.b64encode(compressed).decode('utf-8')
-
-    return f"{code_type};{b64_str}"
+    names = list(celltypes.keys())
+    data = [[x + y * grid.width, cell_to_data(cell, names)]
+            for x, y, cell in grid
+            if cell is not None and cell.name in names]
+    raw = json.dumps(data, separators=(",", ":")).encode("utf-8")
+    return "S2;" + base64.b64encode(zlib.compress(raw)).decode("utf-8")
 
 
 def load_code(save_string):
-    parts = save_string.split(";")
-    b64_str = parts[1]
-    cell_type_list = list(celltypes.keys())
-
-    compressed = base64.b64decode(b64_str.encode('utf-8'))
-    json_str = zlib.decompress(compressed).decode('utf-8')
-    code_data = json.loads(json_str)
-
-    for pos, state in code_data:
-        x = pos % grid.width
-        y = pos // grid.width
-
-        state["name"] = cell_type_list[state["name"]]
-        effects_data = state.pop("effects")
-
-        loaded_cell = Cell(direction=state["direction"], name=state["name"])
-
-        for key, value in state.items():
-            setattr(loaded_cell, key, value)
-
-        loaded_cell.effects = cells.EffectList(effects_data)
-        grid[x, y] = loaded_cell
+    names = list(celltypes.keys())
+    try:
+        tag, payload = save_string.strip().split(";", 1)
+        if tag != "S2":
+            return False
+        data = json.loads(zlib.decompress(base64.b64decode(payload)))
+        new = [(pos % grid.width, pos // grid.width, cell_from_data(d, names))
+               for pos, d in data if 0 <= pos < grid.width * grid.height]
+    except Exception:
+        return False
+    for x, y, c in new:
+        grid[x, y] = c
+    return True
 
 
 def place_cell(x, y, direction, name, properties=None):
@@ -1342,7 +1338,7 @@ def cool_bg_thing():
 
     current_time = pygame.time.get_ticks()
     if current_time - last_spawn_time_of_coolbgthing >= 500:
-        coolbgthings.append([pygame.transform.scale_by(images[get_random_cell_name()], 2), 0, random.randint(0, screen.get_height())])
+        coolbgthings.append([pygame.transform.scale_by(images[get_random_cell_name()], 2), -32, random.randint(0, screen.get_height())])
         last_spawn_time_of_coolbgthing = current_time
 
     for j in coolbgthings:
@@ -1352,6 +1348,7 @@ dt = 0
 amb = audio[random.choice(["Combine Like Terms","Cells And More Cells"])]
 amb.play(loops=-1)
 
+fps = 0
 while running:
     key_buttons = pygame.key.get_pressed()
     if key_buttons[pygame.K_LEFT]:
@@ -1364,13 +1361,12 @@ while running:
         player_input.append("right")
     mouse_pos = pygame.mouse.get_pos()
     mx, my = int((mouse_pos[0] + camera_x) // cell_size), int((mouse_pos[1] + camera_y) // cell_size)
-    lerp_time += dt * (1 / update_delay)
-    if lerp_time >= 1 and menu == "Game":
+    lerp_time = min(lerp_time + dt/update_delay, 1)
+    if lerp_time >= 1 and menu == "Game" and (stepping or sim_running):
         lerp_time = 0
         stepping = False
         reset_cells()
-        if sim_running:
-            tick()
+        tick()
         player_input.clear()
     if menu == "Main Menu":
         lerp_time = 1
