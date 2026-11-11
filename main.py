@@ -81,7 +81,7 @@ celltypes = {
     "slide": {"desc": "Can only be pushed on the indicated sides."},
     "three directional": {"desc": "Can ony be pushed on the indicated sides."},
     "zero directional": {"desc": "Can ony be pushed on the indicated sides, except there are no indicated sides."},
-    "random push": {"desc": "A Push cell that has a 1/2 chance to not be movable."},
+    "random push": {"desc": "A Push cell that has an adjustable chance to not be movable."},
     "cw 90 rotator": {"desc": "Rotates neighboring cells 90 degrees clockwise."},
     "ccw 90 rotator": {"desc": "Rotates neighboring cells 90 degrees counterclockwise."},
     "180 rotator": {"desc": "Rotates neighboring cells 180 degrees."},
@@ -218,6 +218,7 @@ celltypes = {
     "levophysical trash": {"desc": "A Trash that pushes the cell to the left of the direction the cell came in."},
     "a weight": {"desc": "Just your average weight that subtracts the letter \"a\" from forces."},
     "metageneratable": {"desc": "Like an X Generatable, but index 0 is the cell inside of it instead."},
+    "forker": {"desc": "When cells are pushed on the back, it duplicates it into two perpendicular directions."},
 }
 
 subcategories = {
@@ -247,6 +248,7 @@ subcategories = {
     "enemies": ["enemy", "squish enemy", "bulk enemy", "bread"],
     "divergers": ["curve diverger", "acute curve diverger", "obtuse curve diverger", "bicurve diverger",
                   "straight diverger", "bistraight diverger", "diode diverger"],
+    "forkers": ["forker"],
     "coin divergers": ["coin diverger"],
     "redirectors": ["redirector"],
     "freezers": ["freezer", "winter", "thawer", "summer"],
@@ -274,7 +276,7 @@ categories = {
     "Forcers": [subcategories["repulsors"], subcategories["impulsors"], subcategories["gears"],
                 subcategories["mirrors"], images["repulsor"]],
     "Destroyers": [subcategories["trashes"], subcategories["enemies"], images["trash"]],
-    "Divergers": [subcategories["divergers"], subcategories["coin divergers"], images["curve diverger"]],
+    "Divergers": [subcategories["divergers"], subcategories["forkers"], subcategories["coin divergers"], images["curve diverger"]],
     "Effect Givers": [subcategories["freezers"], subcategories["disablers"], subcategories["electrocutors"], images["freezer"]],
     "Other": [subcategories["storing"], subcategories["brightness"], subcategories["coins"], subcategories["other"],
               images["void"]],
@@ -925,6 +927,7 @@ def draw_text(x, y, direction, name, flags, text, outline=False, color=(255, 255
     f["nearest"] = True
     scale = cell_size / 32 * f.get("size", 1)
     if outline:
+        outline = (outline.r, outline.g, outline.b)
         f["source"] = get_text_surf(text, outline, scale)
         px = max(1, round(cell_size / 32))
         step = px / cell_size
@@ -1080,7 +1083,6 @@ def shadow(surf, opacity=30):
     copy.fill((0, 0, 0, 255), special_flags=pygame.BLEND_RGBA_MIN)
     copy.fill((opacity, opacity, opacity, opacity), special_flags=pygame.BLEND_RGBA_MULT)
     return copy
-
 
 
 def draw_grid():

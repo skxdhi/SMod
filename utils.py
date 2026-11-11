@@ -31,6 +31,12 @@ def get_darkest_color(surface: pygame.Surface):
     sorted_colors = sorted(unique_colors, key=get_brightness)
     return sorted_colors[0]
 
+def get_item(lst, index, default=None):
+    try:
+        return lst[index]
+    except IndexError:
+        return default
+
 def distance(a: tuple, b: tuple):
     ax, ay = a
     bx, by = b

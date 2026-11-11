@@ -80,7 +80,7 @@ def is_unbreakable(cell, force_type, side):
     return get_tag(cell.name, "unbreakable", force_type, side, cell, default=False)
 
 def gen_as(cell, side):
-    return get_tag(cell.name, "gen_as", side, cell, default=cell)
+    return get_tag(cell.name, "gen_as", side, cell, default=cell.copy())
 
 def is_destroyer(cell, other_cell, side):
     destroyer = get_tag(cell.name, "isdestroyer", side, cell, default=False)
@@ -134,6 +134,9 @@ add_tag("cannot_disable", {
 def basic_destroy(cell, side):
     return True
 
+def forker_destroy(cell, side):
+    return side == 2
+
 add_tag("isdestroyer", {
     "trash": basic_destroy,
     "jump trash": basic_destroy,
@@ -146,6 +149,7 @@ add_tag("isdestroyer", {
     "bread": basic_destroy,
     "dextrophysical trash": basic_destroy,
     "levophysical trash": basic_destroy,
+    "forker": forker_destroy,
 })
 
 add_tag("collectable", {
@@ -293,7 +297,7 @@ class Cell:
             effects=self.effects.copy(),
             noupdate=self.noupdate,
             eaten=list(self.eaten),
-            v=dict(self.vars),
+            v=deepcopy(self.vars),
             properties=dict(self.properties)
         )
 
@@ -1072,6 +1076,28 @@ class Grid:
                 flags["break"] = True
                 play_sound("destroy")
 
+        elif cell.name == "forker":
+            if side == 2:
+                last_cell = self[*lastpos] if lastpos is not None else flags["replacecell"]
+                if last_cell is not None:
+                    up = last_cell.copy()
+                    up.direction -= 1
+                    down = last_cell.copy()
+                    down.direction += 1
+                    up.updated = True
+                    down.updated = True
+
+                    if lastpos is not None:
+                        self[*lastpos] = None
+                    else:
+                        flags["replacecell"] = None
+                    flags["break"] = True
+
+                    ux, uy, udir, _ = self.step_forward(x, y, direction.rotated(-1))
+                    queue_task("postpush", lambda: self.push_cell(ux, uy, udir, {"replacecell": up}))
+                    bx, by, bdir, _ = self.step_forward(x, y, direction.rotated(1))
+                    queue_task("postpush", lambda: self.push_cell(bx, by, bdir, {"replacecell": down}))
+
         if front_cell is not None:
             if front_cell.name in ["mover", "leaper", "hydra", "skidhi 90", "player mover", "advancer", "crusher",
                                    "purple mover", "fast mover"] and not front_cell.effects.frozen:
@@ -1564,13 +1590,12 @@ class Grid:
         bx, by, j, copy = self.step_backward(x, y, to_vec(cell.direction))
         fx, fy, k, _ = self.step_forward(x, y, to_vec((cell.direction + front_output)))
         if copy is None: return
-        copy.direction += front_output
         g_a = gen_as(copy, to_side(copy.direction, to_dir(j)))
         if g_a is False: return
-        copy = g_a
-        copy.oldx = bx
-        copy.oldy = by
-        if self.push_cell(fx, fy, to_vec((cell.direction + front_output)), {"replacecell": copy}):
+        g_a.oldx = bx
+        g_a.oldy = by
+        g_a.direction += front_output
+        if self.push_cell(fx, fy, to_vec((cell.direction + front_output)), {"replacecell": g_a}):
             if cell.name == "single cell generator":
                 cell.vars["full"] = True
 
