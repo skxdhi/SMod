@@ -79,11 +79,13 @@ def get_tag(name, tag, *args, default=None):
 def is_unbreakable(cell, force_type, side):
     return get_tag(cell.name, "unbreakable", force_type, side, cell, default=False)
 
-def collide(cell, force_type, side):
-    return get_tag(cell.name, "collide", force_type, side, cell, default=False)
-
 def gen_as(cell, side):
     return get_tag(cell.name, "gen_as", side, cell, default=cell)
+
+def is_destroyer(cell, other_cell, side):
+    destroyer = get_tag(cell.name, "isdestroyer", side, cell, default=False)
+    if destroyer and not is_unbreakable(other_cell, "destroy", (side+2)%4):
+        return
 
 def nudge_into(cell, side):
     destroyer = get_tag(cell.name, "isdestroyer", side, cell, default=False)
@@ -121,16 +123,12 @@ add_tag("unbreakable", {
 add_tag("can_store", {
     "storage": True,
     "meta": True,
+    "metageneratable": True,
 })
 
 add_tag("cannot_disable", {
     "disabler": True,
     "enabler": True,
-})
-
-add_tag("collide", {
-    "enemy": True,
-    "bulk enemy": True,
 })
 
 def basic_destroy(cell, side):
@@ -254,14 +252,19 @@ class Cell:
 
     @direction.setter
     def direction(self, value):
+        old = self._direction
         self._direction = value
+        if self.storing_raw is not None:
+            self.storing_raw.direction += value - old
 
     @property
     def storing(self):
         if self.storing_raw is None or self.storing_raw.name == "void":
             return None
         if self.storing_raw.name == "self":
-            return self.copy()
+            c = self.copy()
+            c.direction += self.storing_raw.direction
+            return c
         if self.storing_raw.name == "meta":
             c = self.storing_raw.copy()
             if c.properties["Index"] > 1:
@@ -301,6 +304,15 @@ def x_generatable(side, cell):
         return copy
     return None
 
+def meta_generatable(side, cell):
+    if cell.properties["Meta"] > 0:
+        copy = cell.copy()
+        copy.properties["Meta"] -= 1
+        if copy.properties["Meta"] == 0:
+            copy = cell.storing.copy() if cell.storing_raw is not None else False
+        return copy
+    return None
+
 def generate_as(name):
     def wrapper(side, cell):
         copy = cell.copy()
@@ -312,6 +324,7 @@ add_tag("gen_as", {
     "ungeneratable": None,
     "monogeneratable": generate_as("ungeneratable"),
     "x generatable": x_generatable,
+    "metageneratable": meta_generatable,
     "spirit": False,
     "ghost": False,
 })
@@ -595,7 +608,8 @@ class Grid:
             self[x, y] = cell.storing_raw
         self[x, y].effects.enabled = True
 
-    def eat_cell(self, x, y, tx, ty, force_animation=False):
+    def eat_cell(self, x, y, tx, ty):
+        if self[x, y] is None: return
         if (x, y) == (tx, ty):
             self.eaten.append((self[x, y].copy(), (tx, ty)))
             return
@@ -989,7 +1003,7 @@ class Grid:
             nx, ny, ndir, _ = self.step_forward(x, y, direction.rotated(-rotation))
             queue_task("postpush", lambda: self.push_cell(nx, ny, ndir))
 
-        if cell.name == "lichen":
+        if cell.name == "lichen" and not flags.get("test", False):
             self.eat_cell(x, y, x, y)
             self[x, y] = None
             flags["break"] = True
@@ -1060,7 +1074,7 @@ class Grid:
 
         if front_cell is not None:
             if front_cell.name in ["mover", "leaper", "hydra", "skidhi 90", "player mover", "advancer", "crusher",
-                                   "purple mover"] and not front_cell.effects.frozen:
+                                   "purple mover", "fast mover"] and not front_cell.effects.frozen:
                 if front_cell.direction == ddir:
                     flags["force"] += 1
                 elif front_cell.direction == (ddir + 2) % 4:
@@ -1070,6 +1084,11 @@ class Grid:
                     flags["force"] += 1
                 elif front_cell.direction == (ddir + 2) % 4:
                     flags["force"] -= 1
+            if front_cell.name == "super mover" and not front_cell.effects.frozen:
+                if front_cell.direction == ddir:
+                    flags["force"] += math.inf
+                elif front_cell.direction == (ddir + 2) % 4:
+                    flags["force"] -= math.inf
 
         if flags["force"] <= 0:
             success = False
@@ -1272,14 +1291,20 @@ class Grid:
         elif cell.name == "fast mover":
             self.push_cell(x, y, to_vec(cell.direction))
             px, py, _, _ = self.step_forward(x, y, to_vec(cell.direction))
-            if (pos:=(cell.x, cell.y)) is not None:
+            if self[*(pos:=(cell.x, cell.y))] is not cell:
                 px, py = pos
                 self.push_cell(px, py, to_vec(cell.direction))
         elif cell.name == "super mover":
             success = True
+            loops = 0
+            sx, sy = x, y
             while success:
-                success = self.push_cell(x, y, to_vec(cell.direction))
-                if (pos:=(cell.x, cell.y)) is None:
+                if (cell.x, cell.y) == (sx, sy):
+                    loops += 1
+                if loops >= 5:
+                    break
+                success = self.push_cell(x, y, to_vec(cell.direction), {"force": math.inf})
+                if self[*(pos:=(cell.x, cell.y))] is not cell:
                     break
                 x, y = pos
         elif cell.name == "bird":
@@ -1510,9 +1535,7 @@ class Grid:
             cx, cy, _, cc = self.step_forward(cx, cy, to_vec(cell.direction+front_output))
             if cc is None:
                 break
-            elif cc.name != "supergenstorage":
-                break
-            else:
+            elif cc.name == "supergenstorage":
                 self[cx, cy] = self[cx, cy].storing_raw
             i += 1
 
@@ -1545,6 +1568,8 @@ class Grid:
         g_a = gen_as(copy, to_side(copy.direction, to_dir(j)))
         if g_a is False: return
         copy = g_a
+        copy.oldx = bx
+        copy.oldy = by
         if self.push_cell(fx, fy, to_vec((cell.direction + front_output)), {"replacecell": copy}):
             if cell.name == "single cell generator":
                 cell.vars["full"] = True
@@ -1607,7 +1632,7 @@ class Grid:
 
     def do_basic_gear(self, gear_x, gear_y, rotation):
         neighbors = self.get_surrounding(gear_x, gear_y)
-        gears = ["cw gear", "ccw gear", "slow cw gear", "slow ccw gear", "fast cw gear", "fast ccw gear", "jam"]
+        gears = ["cw gear", "ccw gear", "slow cw gear", "slow ccw gear", "fast cw gear", "fast ccw gear", "gyro", "jam"]
 
         for i, (nx, ny, c) in neighbors.items():
             if c is None: continue
