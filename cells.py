@@ -64,6 +64,7 @@ chunks = {
     "puller": ["advancer", "leaper puller", "slow puller"],
     "inertia": ["rotatable inertia"],
     "logic arrows": ["la source", "la arrow"],
+    "disabler": ["ifier"],
 }
 
 tags = {}
@@ -127,11 +128,13 @@ add_tag("can_store", {
     "storage": True,
     "meta": True,
     "metageneratable": True,
+    "ifier": True,
 })
 
 add_tag("cannot_disable", {
     "disabler": True,
     "enabler": True,
+    "ifier": True,
 })
 
 def basic_destroy(side, cell):
@@ -340,10 +343,10 @@ add_tag("gen_as", {
     "ghost": False,
 })
 
-def make_subtick(chunk,condition=None,directional=False,postqueue=None,simul=False):
+def make_subtick(chunk,condition=None,directional=False,postqueue=None,simul=False,reversed=False):
     if not condition:
         condition = lambda x,y,cell,direction: True
-    out = {"chunk":chunk,"directional":directional,"condition":condition,"simul":simul}
+    out = {"chunk":chunk,"directional":directional,"condition":condition,"simul":simul,"reversed":reversed}
     if postqueue is not None:
         out["postqueue"] = postqueue
     return out
@@ -370,7 +373,7 @@ subticks = [
     make_subtick("puller",directional=True),
     make_subtick("steer"),
     make_subtick("super mover", directional=True),
-    make_subtick("mover",directional=True),
+    make_subtick("mover",directional=True,reversed=True),
     make_subtick("nudger",directional=True),
     make_subtick("player",directional=True),
     make_subtick("spooner",directional=True),
@@ -426,11 +429,11 @@ class Grid:
 
         for subtick in subticks:
             if subtick["directional"]:
-                self.directional_subtick(subtick["chunk"], subtick["condition"], active_cells)
+                self.directional_subtick(subtick["chunk"], subtick["condition"], active_cells, reversed=subtick["reversed"])
             elif subtick["simul"]:
                 self.simul_subtick(subtick["chunk"], subtick["condition"], active_cells)
             else:
-                self.subtick(subtick["chunk"], subtick["condition"], active_cells)
+                self.subtick(subtick["chunk"], subtick["condition"], active_cells, reversed=subtick["reversed"])
             if "postqueue" in subtick:
                 run_queue(subtick["postqueue"])
 
@@ -442,9 +445,10 @@ class Grid:
                 c.direction = cell.direction
                 self[x, y] = c
 
-    def directional_subtick(self, chunkid, condition, active_cells):
-        for i in [0, 0.5, 2, 2.5, 1, 1.5, 3, 3.5]:
-            self.subtick(chunkid, condition, active_cells, i)
+    def directional_subtick(self, chunkid, condition, active_cells, reversed=False):
+        l = [0, 0.5, 2, 2.5, 1, 1.5, 3, 3.5]
+        for i in l:
+            self.subtick(chunkid, condition, active_cells, i, reversed=reversed)
 
     def simul_subtick(self, chunkid, condition, active_cells):
         name = "Do" + chunkid.title().replace(" ", "")
@@ -481,14 +485,18 @@ class Grid:
             holder = me if self[me.x, me.y] is me else cell
             holder.updated, holder.noupdate = me.updated, me.noupdate
 
-    def subtick(self, chunkid, condition, active_cells, direction=None):
+    def subtick(self, chunkid, condition, active_cells, direction=None, reversed=None):
         func = getattr(self, "Do" + chunkid.title().replace(" ", ""))
         valid_names = {chunkid}.union(chunks.get(chunkid, []))
 
         if direction is None:
-            for x in range(self.width):
+            xs = range(self.width)
+            ys = range(self.height)
+            if reversed:
+                xs, ys = xs[::-1], ys[::-1]
+            for x in xs:
                 col = self.grid[x]
-                for y in range(self.height):
+                for y in ys:
                     cell = col[y]
                     if cell is None or cell.name not in valid_names or cell.updated or cell.effects.frozen:
                         continue
@@ -505,6 +513,9 @@ class Grid:
             ys = range(self.height - 1, -1, -1)
         else:
             ys = range(self.height)
+
+        if reversed:
+            xs, ys = xs[::-1], ys[::-1]
 
         for x in xs:
             for y in ys:
@@ -657,11 +668,33 @@ class Grid:
         new_cell.storing = cell.copy()
         self[x, y] = new_cell
 
+    def ify_cell(self, x, y, ify):
+        cell = self[x, y]
+        if cell is None: return
+        if cell.vars.get("ify", None) is not None: return
+        if cell.effects.enabled: return
+        if get_tag(cell.name, "cannot_disable"): return
+        if ify is None: return
+
+        oldx = cell.oldx if cell.oldx is not None else x
+        oldy = cell.oldy if cell.oldy is not None else y
+
+        ify = ify.copy()
+        ify.oldx = oldx
+        ify.oldy = oldy
+        ify.vars["ify"] = cell
+
+        self[x, y] = ify
+
     def enable_cell(self, x, y):
         cell = self[x, y]
         if cell is None: return
         if cell.name == "disablestorage":
             self[x, y] = cell.storing_raw
+        if cell.vars.get("ify", None) is not None:
+            cell.vars["ify"].oldx = self[x, y].oldx
+            cell.vars["ify"].oldy = self[x, y].oldy
+            self[x, y] = cell.vars["ify"]
         self[x, y].effects.enabled = True
 
     def eat_cell(self, x, y, tx, ty):
@@ -982,6 +1015,12 @@ class Grid:
         elif cell.name == "lead":
             if math.isclose(side % 1, 0, abs_tol=1e-9):
                 flags["force"] = 0
+        elif cell.name == "resistance":
+            if flags["force"] != 1:
+                flags["force"] = 0
+        elif cell.name == "conductance":
+            if flags["force"] == 1:
+                flags["force"] = 0
         elif cell.name in ["inertia", "rotatable inertia"]:
             cell.vars["momentum"] = {"direction": direction, "force": flags["force"]}
 
@@ -1166,16 +1205,19 @@ class Grid:
                                    "purple mover", "fast mover"] and not front_cell.effects.frozen:
                 if front_cell.direction == ddir:
                     flags["force"] += 1
+                    front_cell.updated = True
                 elif front_cell.direction == (ddir + 2) % 4:
                     flags["force"] -= 1
             if front_cell.name == "slow mover" and not front_cell.effects.frozen and self.ticks % 2 == 0:
                 if front_cell.direction == ddir:
                     flags["force"] += 1
+                    front_cell.updated = True
                 elif front_cell.direction == (ddir + 2) % 4:
                     flags["force"] -= 1
             if front_cell.name == "super mover" and not front_cell.effects.frozen:
                 if front_cell.direction == ddir:
                     flags["force"] += math.inf
+                    front_cell.updated = True
                 elif front_cell.direction == (ddir + 2) % 4:
                     flags["force"] -= math.inf
 
@@ -1320,6 +1362,12 @@ class Grid:
                 flags["force"] = 0
         elif cell.name == "lead":
             if math.isclose(side % 1, 0, abs_tol=1e-9):
+                flags["force"] = 0
+        elif cell.name == "resistance":
+            if flags["force"] != 1:
+                flags["force"] = 0
+        elif cell.name == "conductance":
+            if flags["force"] == 1:
                 flags["force"] = 0
 
         if back_cell is not None:
@@ -1717,6 +1765,11 @@ class Grid:
             for k, (i, j, c) in neighbor_func(x, y).items():
                 if not c: continue
                 self.disable_cell(i, j)
+        if cell.name == "ifier":
+            neighbor_func = self.get_neighbors if cell.direction % 1 == 0 else self.get_diagonals
+            for k, (i, j, c) in neighbor_func(x, y).items():
+                if not c: continue
+                self.ify_cell(i, j, cell.storing)
 
     def DoEnabler(self, x, y, cell):
         if cell.name == "enabler":

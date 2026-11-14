@@ -63,6 +63,9 @@ def lerp(a, b, t):
     diff = (b - a)
     return a + diff*t
 
+def ease_out(a, b, t):
+    return lerp(a, b, 1-(1-t)**2)
+
 def lerp_angle(a, b, t):
     if a is None: return b
     diff = (b - a) % 4

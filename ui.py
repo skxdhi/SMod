@@ -1,5 +1,5 @@
 import pygame
-
+import utils
 
 class UI:
     def __init__(self, elements=None):
@@ -90,13 +90,13 @@ class ButtonTemplate:
     def x(self):
         sx = self.start_x
         tx = self.target_x
-        return sx + (tx - sx) * self.anim_progress
+        return utils.ease_out(sx, tx, self.anim_progress)
 
     @property
     def y(self):
         sy = self.start_y
         ty = self.target_y
-        return sy + (ty - sy) * self.anim_progress
+        return utils.ease_out(sy, ty, self.anim_progress)
 
     def update_animation(self, dt):
         if self.anim_progress < 1.0:
