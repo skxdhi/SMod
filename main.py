@@ -218,7 +218,10 @@ celltypes = {
     "levophysical trash": {"desc": "A Trash that pushes the cell to the left of the direction the cell came in."},
     "a weight": {"desc": "Just your average weight that subtracts the letter \"a\" from forces."},
     "metageneratable": {"desc": "Like an X Generatable, but index 0 is the cell inside of it instead."},
-    "forker": {"desc": "When cells are pushed on the back, it duplicates it into two perpendicular directions."},
+    "forker": {"desc": "When cells enter the back, it duplicates it into two perpendicular directions."},
+    "la source": {"desc": "Emits a logic signal to all neighboring cells."},
+    "la arrow": {"desc": "Emits a logic signal to all neighboring cells."},
+    "spooner": {"desc": "When cells enter on its two indicated sides, it outputs the first one that came in (handled at the subtick level)."},
 }
 
 subcategories = {
@@ -249,6 +252,7 @@ subcategories = {
     "divergers": ["curve diverger", "acute curve diverger", "obtuse curve diverger", "bicurve diverger",
                   "straight diverger", "bistraight diverger", "diode diverger"],
     "forkers": ["forker"],
+    "spooners": ["spooner"],
     "coin divergers": ["coin diverger"],
     "redirectors": ["redirector"],
     "freezers": ["freezer", "winter", "thawer", "summer"],
@@ -262,7 +266,8 @@ subcategories = {
     "impulsors": ["impulsor"],
     "other": ["texter"],
     "brightness": ["light", "dark", "night"],
-    "converters": ["converter"]
+    "converters": ["converter"],
+    "logic arrows": ["la source", "la arrow"],
 }
 
 categories = {
@@ -276,9 +281,9 @@ categories = {
     "Forcers": [subcategories["repulsors"], subcategories["impulsors"], subcategories["gears"],
                 subcategories["mirrors"], images["repulsor"]],
     "Destroyers": [subcategories["trashes"], subcategories["enemies"], images["trash"]],
-    "Divergers": [subcategories["divergers"], subcategories["forkers"], subcategories["coin divergers"], images["curve diverger"]],
+    "Divergers": [subcategories["divergers"], subcategories["forkers"], subcategories["spooners"], subcategories["coin divergers"], images["curve diverger"]],
     "Effect Givers": [subcategories["freezers"], subcategories["disablers"], subcategories["electrocutors"], images["freezer"]],
-    "Other": [subcategories["storing"], subcategories["brightness"], subcategories["coins"], subcategories["other"],
+    "Other": [subcategories["storing"], subcategories["brightness"], subcategories["coins"], subcategories["logic arrows"], subcategories["other"],
               images["void"]],
 }
 
@@ -451,7 +456,7 @@ def update_cell_buttons():
 def format_text(text: str):
     r_text = ""
     for word in text.split():
-        if word in ["cw", "ccw"]:
+        if word in ["cw", "ccw", "la"]:
             word = word.upper()
             r_text += word + " "
             continue
@@ -963,6 +968,11 @@ def draw_single_cell_generator(x, y, direction, name, flags):
     f["raw"] = True
     draw_cell(x, y, direction, name + " full" if flags["cell"].vars.get("full", False) else name, f)
 
+def draw_la(x, y, direction, name, flags):
+    f = dict(flags)
+    f["raw"] = True
+    draw_cell(x, y, direction, name + " off" if not flags["cell"].vars.get("la_powered", False) else name, f)
+
 def draw_fraction(numerator_name, denominator_name):
     def wrapper(x, y, direction, name, flags):
         txt = str(flags["cell"].properties[numerator_name])+"/"+str(flags["cell"].properties[denominator_name])
@@ -984,6 +994,7 @@ draw_funcs = {
     "single cell generator": draw_single_cell_generator,
     "meta": draw_storage,
     "metageneratable": draw_storage,
+    "la arrow": draw_la,
 }
 
 after_draw_funcs = {

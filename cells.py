@@ -3,6 +3,8 @@ import random
 import sys
 import weakref
 from copy import deepcopy
+
+import utils
 from utils import raise_random_error
 from loader import audio, images
 import pygame
@@ -61,6 +63,7 @@ chunks = {
     "player": ["anti player", "pull player"],
     "puller": ["advancer", "leaper puller", "slow puller"],
     "inertia": ["rotatable inertia"],
+    "logic arrows": ["la source", "la arrow"],
 }
 
 tags = {}
@@ -131,11 +134,14 @@ add_tag("cannot_disable", {
     "enabler": True,
 })
 
-def basic_destroy(cell, side):
+def basic_destroy(side, cell):
     return True
 
-def forker_destroy(cell, side):
+def forker_destroy(side, cell):
     return side == 2
+
+def spooner_destroy(side, cell):
+    return side % 2 == 1
 
 add_tag("isdestroyer", {
     "trash": basic_destroy,
@@ -150,6 +156,7 @@ add_tag("isdestroyer", {
     "dextrophysical trash": basic_destroy,
     "levophysical trash": basic_destroy,
     "forker": forker_destroy,
+    "spooner": spooner_destroy,
 })
 
 add_tag("collectable", {
@@ -333,10 +340,10 @@ add_tag("gen_as", {
     "ghost": False,
 })
 
-def make_subtick(chunk,condition=None,directional=False,postqueue=None):
+def make_subtick(chunk,condition=None,directional=False,postqueue=None,simul=False):
     if not condition:
         condition = lambda x,y,cell,direction: True
-    out = {"chunk":chunk,"directional":directional,"condition":condition}
+    out = {"chunk":chunk,"directional":directional,"condition":condition,"simul":simul}
     if postqueue is not None:
         out["postqueue"] = postqueue
     return out
@@ -348,6 +355,7 @@ subticks = [
     make_subtick("disabler"),
     make_subtick("electrocutor"),
     make_subtick("copper"),
+    make_subtick("logic arrows", simul=True),
     make_subtick("converter",directional=True),
     make_subtick("mirror",directional=True),
     make_subtick("intaker",directional=True),
@@ -365,6 +373,7 @@ subticks = [
     make_subtick("mover",directional=True),
     make_subtick("nudger",directional=True),
     make_subtick("player",directional=True),
+    make_subtick("spooner",directional=True),
 ]
 
 class Grid:
@@ -418,6 +427,8 @@ class Grid:
         for subtick in subticks:
             if subtick["directional"]:
                 self.directional_subtick(subtick["chunk"], subtick["condition"], active_cells)
+            elif subtick["simul"]:
+                self.simul_subtick(subtick["chunk"], subtick["condition"], active_cells)
             else:
                 self.subtick(subtick["chunk"], subtick["condition"], active_cells)
             if "postqueue" in subtick:
@@ -434,6 +445,41 @@ class Grid:
     def directional_subtick(self, chunkid, condition, active_cells):
         for i in [0, 0.5, 2, 2.5, 1, 1.5, 3, 3.5]:
             self.subtick(chunkid, condition, active_cells, i)
+
+    def simul_subtick(self, chunkid, condition, active_cells):
+        name = "Do" + chunkid.title().replace(" ", "")
+        valid_names = {chunkid}.union(chunks.get(chunkid, []))
+
+        runners = []
+        for x in range(self.width):
+            col = self.grid[x]
+            for y in range(self.height):
+                cell = col[y]
+                if cell is None or cell.name not in valid_names or cell.updated or cell.effects.frozen:
+                    continue
+                if not condition(x, y, cell, None): continue
+                runners.append((x, y, cell))
+
+        changes = {}
+        done = []
+        for x, y, cell in runners:
+            view = _Scratch(self)
+            me = view[x, y]
+            view.run_cell(getattr(view, name), x, y, me)
+            for ch in list(queue):
+                run_queue(ch)
+            for pos, new in view.layer.items():
+                old = self.grid[pos[0]][pos[1]]
+                if (new is None) != (old is None) or (new is not None and _sig(new) != _sig(old)):
+                    changes[pos] = new
+            self.eaten.extend(view.eaten)
+            done.append((cell, me))
+
+        for (x, y), new in changes.items():
+            self[x, y] = new
+        for cell, me in done:
+            holder = me if self[me.x, me.y] is me else cell
+            holder.updated, holder.noupdate = me.updated, me.noupdate
 
     def subtick(self, chunkid, condition, active_cells, direction=None):
         func = getattr(self, "Do" + chunkid.title().replace(" ", ""))
@@ -510,6 +556,12 @@ class Grid:
             v = to_vec(i)*dist
             l[i] = (x+v.x, y+v.y, self[x+v.x, y+v.y])
         return l
+
+    def la_power_cell(self, x, y, side=None):
+        if self[x, y] is not None:
+            if side is not None and is_unbreakable(self[x, y], "la power", side): return
+            if "la " not in self[x, y].name: return
+            self[x, y].vars["la_powered"] = True
 
     def electrocute_cell(self, x, y, amount, side=None):
         if self[x, y] is not None:
@@ -760,8 +812,6 @@ class Grid:
             if not nudge_into(front, side):
                 return False
         _, _, _, _, success = self.handle_push(tx, ty, direction, flags)
-        if flags["force"] <= 0:
-            return False
         if self[*flags["lastpos"]] is not None:
             self[tx, ty] = self[x, y]
             self[x, y] = None
@@ -1098,6 +1148,19 @@ class Grid:
                     bx, by, bdir, _ = self.step_forward(x, y, direction.rotated(1))
                     queue_task("postpush", lambda: self.push_cell(bx, by, bdir, {"replacecell": down}))
 
+        elif cell.name == "spooner":
+            if side in [1, 3]:
+                last_cell = (self[*lastpos] if lastpos is not None else flags["replacecell"]).copy()
+                if last_cell is not None:
+                    last_cell.direction += -1 if side == 3 else (1 if side == 1 else 0)
+                if cell.vars.get("output", None) is None: cell.vars["output"] = last_cell
+
+                if lastpos is not None:
+                    self[*lastpos] = None
+                else:
+                    flags["replacecell"] = None
+                flags["break"] = True
+
         if front_cell is not None:
             if front_cell.name in ["mover", "leaper", "hydra", "skidhi 90", "player mover", "advancer", "crusher",
                                    "purple mover", "fast mover"] and not front_cell.effects.frozen:
@@ -1285,6 +1348,13 @@ class Grid:
         self[x1, y1] = b_copy
         self[x2, y2] = a_copy
         return True
+
+    def DoSpooner(self, x, y, cell):
+        if (output:=cell.vars.get("output", None)) is not None:
+            nx, ny, ndir, _ = self.step_forward(x, y, to_vec(cell.direction))
+            output.direction += to_dir(ndir) - cell.direction
+            self.push_cell(nx, ny, ndir, {"replacecell": output})
+            cell.vars["output"] = None
 
     def DoMirror(self, x, y, cell):
         if cell.name == "mirror":
@@ -1655,6 +1725,17 @@ class Grid:
                 if not c: continue
                 self.enable_cell(i, j)
 
+    def DoLogicArrows(self, x, y, cell):
+        if cell.name == "la source":
+            neighbor_func = self.get_neighbors if cell.direction % 1 == 0 else self.get_diagonals
+            for k, (i, j, c) in neighbor_func(x, y).items():
+                if not c: continue
+                self.la_power_cell(i, j, to_side(c.direction, k))
+        if cell.name == "la arrow":
+            nx, ny, ndir, ncell = self.step_forward(x, y, to_vec(cell.direction))
+            if ncell and cell.vars.get("la_powered", False):
+                self.la_power_cell(nx, ny, to_side(ncell.direction, to_dir(ndir)))
+
     def do_basic_gear(self, gear_x, gear_y, rotation):
         neighbors = self.get_surrounding(gear_x, gear_y)
         gears = ["cw gear", "ccw gear", "slow cw gear", "slow ccw gear", "fast cw gear", "fast ccw gear", "gyro", "jam"]
@@ -1691,5 +1772,56 @@ class Grid:
         if "fast" in cell.name:
             rotation *= 1.5
         self.do_basic_gear(x, y, rotation)
+
+
+def _sig(v):
+    if isinstance(v, Cell):
+        return (v.name, v._direction, _sig(v.properties), _sig(vars(v.effects)), _sig(v.vars), len(v.eaten))
+    if isinstance(v, dict):
+        return tuple(sorted(((str(k), _sig(x)) for k, x in v.items()), key=lambda kv: kv[0]))
+    if isinstance(v, (list, tuple)):
+        return tuple(_sig(i) for i in v)
+    if isinstance(v, Vector):
+        return ("vec", v.x, v.y)
+    return v
+
+
+class _Scratch(Grid):
+    def __init__(self, base):
+        self.base = base
+        self.width, self.height = base.width, base.height
+        self.ticks = base.ticks
+        self.eaten = []
+        self.positions = weakref.WeakKeyDictionary()
+        self.layer = {}  # (x, y) -> this view's version of the square (a Cell or None)
+
+    def __getitem__(self, key):
+        x, y = key
+        if x is None or y is None: return None
+        if not (0 <= x < self.width and 0 <= y < self.height): return None
+        pos = (x, y)
+        if pos in self.layer:
+            return self.layer[pos]
+        c = self.base.grid[x][y]
+        if c is not None:
+            n = c.copy()
+            n.vars = deepcopy(c.vars)
+            n.oldcell = c.oldcell
+            n.anim_center = c.anim_center
+            n.x, n.y = x, y
+            self.positions[n] = pos
+            c = n
+        self.layer[pos] = c
+        return c
+
+    def __setitem__(self, key, value):
+        x, y = key
+        if x is None or y is None: return
+        if not (0 <= x < self.width and 0 <= y < self.height): return
+        self.layer[(x, y)] = value
+        if value is not None:
+            self.positions[value] = (x, y)
+            value.x = x
+            value.y = y
 
 grid = Grid(grid_width, grid_height)

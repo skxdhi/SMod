@@ -37,6 +37,11 @@ def get_item(lst, index, default=None):
     except IndexError:
         return default
 
+def replace(obj1, obj2):
+    if not isinstance(obj2, type(obj1)):
+        raise TypeError
+    vars(obj1).update(vars(obj2))
+
 def distance(a: tuple, b: tuple):
     ax, ay = a
     bx, by = b
