@@ -81,7 +81,7 @@ celltypes = {
     "slide": {"desc": "Can only be pushed on the indicated sides."},
     "three directional": {"desc": "Can ony be pushed on the indicated sides."},
     "zero directional": {"desc": "Can ony be pushed on the indicated sides, except there are no indicated sides."},
-    "random push": {"desc": "A Push cell that has a 1/2 chance to not be movable."},
+    "random push": {"desc": "A Push cell that has an adjustable chance to not be movable."},
     "cw 90 rotator": {"desc": "Rotates neighboring cells 90 degrees clockwise."},
     "ccw 90 rotator": {"desc": "Rotates neighboring cells 90 degrees counterclockwise."},
     "180 rotator": {"desc": "Rotates neighboring cells 180 degrees."},
@@ -148,7 +148,7 @@ celltypes = {
     "puller": {
         "desc": "A Mover that moves the row behind it forwards instead of the row in front of it; Stops if there is a cell in the way."},
     "player": {"desc": "Moves depending on which arrow key you press."},
-    "disabler": {"desc": "Makes neighboring cells act like pushables."},
+    "disabler": {"desc": "Makes neighboring cells act like push cells."},
     "enabler": {"desc": "Prevents adjacent cells from being disabled."},
     "ana rotator": {"desc": "When cells are rotated by this cell twice they get rotated 180 degrees clockwise."},
     "kata rotator": {
@@ -218,6 +218,13 @@ celltypes = {
     "levophysical trash": {"desc": "A Trash that pushes the cell to the left of the direction the cell came in."},
     "a weight": {"desc": "Just your average weight that subtracts the letter \"a\" from forces."},
     "metageneratable": {"desc": "Like an X Generatable, but index 0 is the cell inside of it instead."},
+    "forker": {"desc": "When cells enter the back, it duplicates it into two perpendicular directions."},
+    "la source": {"desc": "Emits a logic signal to all neighboring cells."},
+    "la arrow": {"desc": "Emits a logic signal to all neighboring cells."},
+    "spooner": {"desc": "When cells enter on its two indicated sides, it outputs the first one that came in (handled at the subtick level)."},
+    "resistance": {"desc": "Blocks all forces that dont have exactly 1 unit of force."},
+    "conductance": {"desc": "Blocks all forces that have exactly 1 unit of force."},
+    "ifier": {"desc": "Makes adjacent cells act like the cell the Ifier is storing."},
 }
 
 subcategories = {
@@ -231,7 +238,7 @@ subcategories = {
                   "three directional", "random push", "arrow", "helix", "lichen"],
     "coins": ["coin", "anti coin", "chocolate coin"],
     "weights": ["weight", "anti weight", "bias", "gold", "lead", "nano weight", "anti nano weight"
-                , "bread", "adjustable weight", "a weight"],
+                , "resistance", "conductance", "bread", "adjustable weight", "a weight"],
     "rotators": ["cw 90 rotator", "cw 45 rotator", "cw 135 rotator", "ccw 90 rotator", "ccw 45 rotator",
                  "ccw 135 rotator", "random 90 rotator", "random 45 rotator", "random 135 rotator",
                  "180 rotator"],
@@ -247,20 +254,23 @@ subcategories = {
     "enemies": ["enemy", "squish enemy", "bulk enemy", "bread"],
     "divergers": ["curve diverger", "acute curve diverger", "obtuse curve diverger", "bicurve diverger",
                   "straight diverger", "bistraight diverger", "diode diverger"],
+    "forkers": ["forker"],
+    "spooners": ["spooner"],
     "coin divergers": ["coin diverger"],
     "redirectors": ["redirector"],
     "freezers": ["freezer", "winter", "thawer", "summer"],
-    "disablers": ["disabler", "enabler"],
+    "disablers": ["disabler", "ifier", "enabler"],
     "electrocutors": ["electrocutor", "copper"],
     "gears": ["cw gear", "slow cw gear", "fast cw gear", "ccw gear",
               "slow ccw gear", "fast ccw gear", "180 gear", "gyro", "jam", "jelly"],
     "mirrors": ["mirror"],
-    "storing": ["storage", "self", "meta", "void"],
+    "storing": ["storage", "self", "meta", "void", "metageneratable", "ifier"],
     "repulsors": ["repulsor"],
     "impulsors": ["impulsor"],
     "other": ["texter"],
     "brightness": ["light", "dark", "night"],
-    "converters": ["converter"]
+    "converters": ["converter"],
+    "logic arrows": ["la source", "la arrow"],
 }
 
 categories = {
@@ -274,9 +284,9 @@ categories = {
     "Forcers": [subcategories["repulsors"], subcategories["impulsors"], subcategories["gears"],
                 subcategories["mirrors"], images["repulsor"]],
     "Destroyers": [subcategories["trashes"], subcategories["enemies"], images["trash"]],
-    "Divergers": [subcategories["divergers"], subcategories["coin divergers"], images["curve diverger"]],
+    "Divergers": [subcategories["divergers"], subcategories["forkers"], subcategories["spooners"], subcategories["coin divergers"], images["curve diverger"]],
     "Effect Givers": [subcategories["freezers"], subcategories["disablers"], subcategories["electrocutors"], images["freezer"]],
-    "Other": [subcategories["storing"], subcategories["brightness"], subcategories["coins"], subcategories["other"],
+    "Other": [subcategories["storing"], subcategories["brightness"], subcategories["coins"], subcategories["logic arrows"], subcategories["other"],
               images["void"]],
 }
 
@@ -449,7 +459,7 @@ def update_cell_buttons():
 def format_text(text: str):
     r_text = ""
     for word in text.split():
-        if word in ["cw", "ccw"]:
+        if word in ["cw", "ccw", "la"]:
             word = word.upper()
             r_text += word + " "
             continue
@@ -925,6 +935,7 @@ def draw_text(x, y, direction, name, flags, text, outline=False, color=(255, 255
     f["nearest"] = True
     scale = cell_size / 32 * f.get("size", 1)
     if outline:
+        outline = (outline.r, outline.g, outline.b)
         f["source"] = get_text_surf(text, outline, scale)
         px = max(1, round(cell_size / 32))
         step = px / cell_size
@@ -960,6 +971,11 @@ def draw_single_cell_generator(x, y, direction, name, flags):
     f["raw"] = True
     draw_cell(x, y, direction, name + " full" if flags["cell"].vars.get("full", False) else name, f)
 
+def draw_la(x, y, direction, name, flags):
+    f = dict(flags)
+    f["raw"] = True
+    draw_cell(x, y, direction, name + " off" if not flags["cell"].vars.get("la_powered", False) else name, f)
+
 def draw_fraction(numerator_name, denominator_name):
     def wrapper(x, y, direction, name, flags):
         txt = str(flags["cell"].properties[numerator_name])+"/"+str(flags["cell"].properties[denominator_name])
@@ -981,6 +997,8 @@ draw_funcs = {
     "single cell generator": draw_single_cell_generator,
     "meta": draw_storage,
     "metageneratable": draw_storage,
+    "la arrow": draw_la,
+    "ifier": draw_storage,
 }
 
 after_draw_funcs = {
@@ -1082,7 +1100,6 @@ def shadow(surf, opacity=30):
     return copy
 
 
-
 def draw_grid():
     margin = 2
     start_x = max(0, int(camera_x // cell_size) - margin)
@@ -1116,9 +1133,22 @@ def draw_grid():
                 draw_cell(lerp(eaten.oldx, x, lerp_time), lerp(eaten.oldy, y, lerp_time),
                           lerp_angle(eaten.olddirection, eaten._direction, lerp_time), eaten.name,
                           flags={"eaten": True, "x": None, "y": None, "cell": eaten})
-            draw_cell(draw_x, draw_y,
-                      lerp_angle(cell.olddirection, cell._direction, lerp_time),
-                      cell.name, flags={"x": x, "y": y, "cell": cell})
+
+            if cell.vars.get("ify", None) is None:
+                draw_cell(draw_x, draw_y,
+                          lerp_angle(cell.olddirection, cell._direction, lerp_time),
+                          cell.name, flags={"x": x, "y": y, "cell": cell})
+            else:
+                draw_cell(draw_x, draw_y,
+                          lerp_angle(cell.vars["ify"].olddirection, cell.vars["ify"]._direction, lerp_time),
+                          cell.vars["ify"].name, flags={"x": x, "y": y, "cell": cell.vars["ify"]})
+                draw_cell(draw_x, draw_y,
+                          lerp_angle(cell.olddirection, cell._direction, lerp_time),
+                          "effects/ified", flags={"x": x, "y": y})
+                draw_cell(draw_x, draw_y,
+                          lerp_angle(cell.olddirection, cell._direction, lerp_time),
+                          cell.name, flags={"x": x, "y": y, "cell": cell, "size": 0.3})
+
             if cell.oldcell is not None:
                 draw_cell(draw_x, draw_y, cell.oldcell.direction, cell.oldcell.name,
                           flags={"eaten": True, "x": None, "y": None, "cell": cell.oldcell})
@@ -1220,6 +1250,12 @@ def reset_cells():
             for effect in vars(cell.effects):
                 if effect not in perm_effects:
                     setattr(cell.effects, effect, False)
+
+            if cell.vars.get("ify", None) is not None:
+                cell.vars["ify"].oldx = grid[x, y].oldx
+                cell.vars["ify"].oldy = grid[x, y].oldy
+                grid[x, y] = cell.vars["ify"]
+            cell.vars["ify"] = None
 
 
 def do_camera():
@@ -1485,7 +1521,7 @@ while running:
         AdjMenuUI.draw()
         if adj_text_input:
             adj_text_input.update_animation(dt)
-        GameUI.update_animation(dt)
+        GameUI.update_animation(dt/2)
     if menu == "Main Menu":
         screen.fill((20,) * 3)
         cool_bg_thing()

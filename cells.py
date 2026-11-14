@@ -3,6 +3,8 @@ import random
 import sys
 import weakref
 from copy import deepcopy
+
+import utils
 from utils import raise_random_error
 from loader import audio, images
 import pygame
@@ -61,6 +63,8 @@ chunks = {
     "player": ["anti player", "pull player"],
     "puller": ["advancer", "leaper puller", "slow puller"],
     "inertia": ["rotatable inertia"],
+    "logic arrows": ["la source", "la arrow"],
+    "disabler": ["ifier"],
 }
 
 tags = {}
@@ -80,7 +84,7 @@ def is_unbreakable(cell, force_type, side):
     return get_tag(cell.name, "unbreakable", force_type, side, cell, default=False)
 
 def gen_as(cell, side):
-    return get_tag(cell.name, "gen_as", side, cell, default=cell)
+    return get_tag(cell.name, "gen_as", side, cell, default=cell.copy())
 
 def is_destroyer(cell, other_cell, side):
     destroyer = get_tag(cell.name, "isdestroyer", side, cell, default=False)
@@ -124,15 +128,23 @@ add_tag("can_store", {
     "storage": True,
     "meta": True,
     "metageneratable": True,
+    "ifier": True,
 })
 
 add_tag("cannot_disable", {
     "disabler": True,
     "enabler": True,
+    "ifier": True,
 })
 
-def basic_destroy(cell, side):
+def basic_destroy(side, cell):
     return True
+
+def forker_destroy(side, cell):
+    return side == 2
+
+def spooner_destroy(side, cell):
+    return side % 2 == 1
 
 add_tag("isdestroyer", {
     "trash": basic_destroy,
@@ -146,6 +158,8 @@ add_tag("isdestroyer", {
     "bread": basic_destroy,
     "dextrophysical trash": basic_destroy,
     "levophysical trash": basic_destroy,
+    "forker": forker_destroy,
+    "spooner": spooner_destroy,
 })
 
 add_tag("collectable", {
@@ -293,7 +307,7 @@ class Cell:
             effects=self.effects.copy(),
             noupdate=self.noupdate,
             eaten=list(self.eaten),
-            v=dict(self.vars),
+            v=deepcopy(self.vars),
             properties=dict(self.properties)
         )
 
@@ -329,10 +343,10 @@ add_tag("gen_as", {
     "ghost": False,
 })
 
-def make_subtick(chunk,condition=None,directional=False,postqueue=None):
+def make_subtick(chunk,condition=None,directional=False,postqueue=None,simul=False,reversed=False):
     if not condition:
         condition = lambda x,y,cell,direction: True
-    out = {"chunk":chunk,"directional":directional,"condition":condition}
+    out = {"chunk":chunk,"directional":directional,"condition":condition,"simul":simul,"reversed":reversed}
     if postqueue is not None:
         out["postqueue"] = postqueue
     return out
@@ -344,6 +358,7 @@ subticks = [
     make_subtick("disabler"),
     make_subtick("electrocutor"),
     make_subtick("copper"),
+    make_subtick("logic arrows", simul=True),
     make_subtick("converter",directional=True),
     make_subtick("mirror",directional=True),
     make_subtick("intaker",directional=True),
@@ -358,9 +373,10 @@ subticks = [
     make_subtick("puller",directional=True),
     make_subtick("steer"),
     make_subtick("super mover", directional=True),
-    make_subtick("mover",directional=True),
+    make_subtick("mover",directional=True,reversed=True),
     make_subtick("nudger",directional=True),
     make_subtick("player",directional=True),
+    make_subtick("spooner",directional=True),
 ]
 
 class Grid:
@@ -413,9 +429,11 @@ class Grid:
 
         for subtick in subticks:
             if subtick["directional"]:
-                self.directional_subtick(subtick["chunk"], subtick["condition"], active_cells)
+                self.directional_subtick(subtick["chunk"], subtick["condition"], active_cells, reversed=subtick["reversed"])
+            elif subtick["simul"]:
+                self.simul_subtick(subtick["chunk"], subtick["condition"], active_cells)
             else:
-                self.subtick(subtick["chunk"], subtick["condition"], active_cells)
+                self.subtick(subtick["chunk"], subtick["condition"], active_cells, reversed=subtick["reversed"])
             if "postqueue" in subtick:
                 run_queue(subtick["postqueue"])
 
@@ -427,18 +445,58 @@ class Grid:
                 c.direction = cell.direction
                 self[x, y] = c
 
-    def directional_subtick(self, chunkid, condition, active_cells):
-        for i in [0, 0.5, 2, 2.5, 1, 1.5, 3, 3.5]:
-            self.subtick(chunkid, condition, active_cells, i)
+    def directional_subtick(self, chunkid, condition, active_cells, reversed=False):
+        l = [0, 0.5, 2, 2.5, 1, 1.5, 3, 3.5]
+        for i in l:
+            self.subtick(chunkid, condition, active_cells, i, reversed=reversed)
 
-    def subtick(self, chunkid, condition, active_cells, direction=None):
+    def simul_subtick(self, chunkid, condition, active_cells):
+        name = "Do" + chunkid.title().replace(" ", "")
+        valid_names = {chunkid}.union(chunks.get(chunkid, []))
+
+        runners = []
+        for x in range(self.width):
+            col = self.grid[x]
+            for y in range(self.height):
+                cell = col[y]
+                if cell is None or cell.name not in valid_names or cell.updated or cell.effects.frozen:
+                    continue
+                if not condition(x, y, cell, None): continue
+                runners.append((x, y, cell))
+
+        changes = {}
+        done = []
+        for x, y, cell in runners:
+            view = _Scratch(self)
+            me = view[x, y]
+            view.run_cell(getattr(view, name), x, y, me)
+            for ch in list(queue):
+                run_queue(ch)
+            for pos, new in view.layer.items():
+                old = self.grid[pos[0]][pos[1]]
+                if (new is None) != (old is None) or (new is not None and _sig(new) != _sig(old)):
+                    changes[pos] = new
+            self.eaten.extend(view.eaten)
+            done.append((cell, me))
+
+        for (x, y), new in changes.items():
+            self[x, y] = new
+        for cell, me in done:
+            holder = me if self[me.x, me.y] is me else cell
+            holder.updated, holder.noupdate = me.updated, me.noupdate
+
+    def subtick(self, chunkid, condition, active_cells, direction=None, reversed=None):
         func = getattr(self, "Do" + chunkid.title().replace(" ", ""))
         valid_names = {chunkid}.union(chunks.get(chunkid, []))
 
         if direction is None:
-            for x in range(self.width):
+            xs = range(self.width)
+            ys = range(self.height)
+            if reversed:
+                xs, ys = xs[::-1], ys[::-1]
+            for x in xs:
                 col = self.grid[x]
-                for y in range(self.height):
+                for y in ys:
                     cell = col[y]
                     if cell is None or cell.name not in valid_names or cell.updated or cell.effects.frozen:
                         continue
@@ -455,6 +513,9 @@ class Grid:
             ys = range(self.height - 1, -1, -1)
         else:
             ys = range(self.height)
+
+        if reversed:
+            xs, ys = xs[::-1], ys[::-1]
 
         for x in xs:
             for y in ys:
@@ -506,6 +567,12 @@ class Grid:
             v = to_vec(i)*dist
             l[i] = (x+v.x, y+v.y, self[x+v.x, y+v.y])
         return l
+
+    def la_power_cell(self, x, y, side=None):
+        if self[x, y] is not None:
+            if side is not None and is_unbreakable(self[x, y], "la power", side): return
+            if "la " not in self[x, y].name: return
+            self[x, y].vars["la_powered"] = True
 
     def electrocute_cell(self, x, y, amount, side=None):
         if self[x, y] is not None:
@@ -601,11 +668,33 @@ class Grid:
         new_cell.storing = cell.copy()
         self[x, y] = new_cell
 
+    def ify_cell(self, x, y, ify):
+        cell = self[x, y]
+        if cell is None: return
+        if cell.vars.get("ify", None) is not None: return
+        if cell.effects.enabled: return
+        if get_tag(cell.name, "cannot_disable"): return
+        if ify is None: return
+
+        oldx = cell.oldx if cell.oldx is not None else x
+        oldy = cell.oldy if cell.oldy is not None else y
+
+        ify = ify.copy()
+        ify.oldx = oldx
+        ify.oldy = oldy
+        ify.vars["ify"] = cell
+
+        self[x, y] = ify
+
     def enable_cell(self, x, y):
         cell = self[x, y]
         if cell is None: return
         if cell.name == "disablestorage":
             self[x, y] = cell.storing_raw
+        if cell.vars.get("ify", None) is not None:
+            cell.vars["ify"].oldx = self[x, y].oldx
+            cell.vars["ify"].oldy = self[x, y].oldy
+            self[x, y] = cell.vars["ify"]
         self[x, y].effects.enabled = True
 
     def eat_cell(self, x, y, tx, ty):
@@ -756,8 +845,6 @@ class Grid:
             if not nudge_into(front, side):
                 return False
         _, _, _, _, success = self.handle_push(tx, ty, direction, flags)
-        if flags["force"] <= 0:
-            return False
         if self[*flags["lastpos"]] is not None:
             self[tx, ty] = self[x, y]
             self[x, y] = None
@@ -928,6 +1015,12 @@ class Grid:
         elif cell.name == "lead":
             if math.isclose(side % 1, 0, abs_tol=1e-9):
                 flags["force"] = 0
+        elif cell.name == "resistance":
+            if flags["force"] != 1:
+                flags["force"] = 0
+        elif cell.name == "conductance":
+            if flags["force"] == 1:
+                flags["force"] = 0
         elif cell.name in ["inertia", "rotatable inertia"]:
             cell.vars["momentum"] = {"direction": direction, "force": flags["force"]}
 
@@ -1072,21 +1165,59 @@ class Grid:
                 flags["break"] = True
                 play_sound("destroy")
 
+        elif cell.name == "forker":
+            if side == 2:
+                last_cell = self[*lastpos] if lastpos is not None else flags["replacecell"]
+                if last_cell is not None:
+                    up = last_cell.copy()
+                    up.direction -= 1
+                    down = last_cell.copy()
+                    down.direction += 1
+                    up.updated = True
+                    down.updated = True
+
+                    if lastpos is not None:
+                        self[*lastpos] = None
+                    else:
+                        flags["replacecell"] = None
+                    flags["break"] = True
+
+                    ux, uy, udir, _ = self.step_forward(x, y, direction.rotated(-1))
+                    queue_task("postpush", lambda: self.push_cell(ux, uy, udir, {"replacecell": up}))
+                    bx, by, bdir, _ = self.step_forward(x, y, direction.rotated(1))
+                    queue_task("postpush", lambda: self.push_cell(bx, by, bdir, {"replacecell": down}))
+
+        elif cell.name == "spooner":
+            if side in [1, 3]:
+                last_cell = (self[*lastpos] if lastpos is not None else flags["replacecell"]).copy()
+                if last_cell is not None:
+                    last_cell.direction += -1 if side == 3 else (1 if side == 1 else 0)
+                if cell.vars.get("output", None) is None: cell.vars["output"] = last_cell
+
+                if lastpos is not None:
+                    self[*lastpos] = None
+                else:
+                    flags["replacecell"] = None
+                flags["break"] = True
+
         if front_cell is not None:
             if front_cell.name in ["mover", "leaper", "hydra", "skidhi 90", "player mover", "advancer", "crusher",
                                    "purple mover", "fast mover"] and not front_cell.effects.frozen:
                 if front_cell.direction == ddir:
                     flags["force"] += 1
+                    front_cell.updated = True
                 elif front_cell.direction == (ddir + 2) % 4:
                     flags["force"] -= 1
             if front_cell.name == "slow mover" and not front_cell.effects.frozen and self.ticks % 2 == 0:
                 if front_cell.direction == ddir:
                     flags["force"] += 1
+                    front_cell.updated = True
                 elif front_cell.direction == (ddir + 2) % 4:
                     flags["force"] -= 1
             if front_cell.name == "super mover" and not front_cell.effects.frozen:
                 if front_cell.direction == ddir:
                     flags["force"] += math.inf
+                    front_cell.updated = True
                 elif front_cell.direction == (ddir + 2) % 4:
                     flags["force"] -= math.inf
 
@@ -1232,6 +1363,12 @@ class Grid:
         elif cell.name == "lead":
             if math.isclose(side % 1, 0, abs_tol=1e-9):
                 flags["force"] = 0
+        elif cell.name == "resistance":
+            if flags["force"] != 1:
+                flags["force"] = 0
+        elif cell.name == "conductance":
+            if flags["force"] == 1:
+                flags["force"] = 0
 
         if back_cell is not None:
             if back_cell.name in ["puller", "advancer"] and not cell.effects.frozen:
@@ -1259,6 +1396,13 @@ class Grid:
         self[x1, y1] = b_copy
         self[x2, y2] = a_copy
         return True
+
+    def DoSpooner(self, x, y, cell):
+        if (output:=cell.vars.get("output", None)) is not None:
+            nx, ny, ndir, _ = self.step_forward(x, y, to_vec(cell.direction))
+            output.direction += to_dir(ndir) - cell.direction
+            self.push_cell(nx, ny, ndir, {"replacecell": output})
+            cell.vars["output"] = None
 
     def DoMirror(self, x, y, cell):
         if cell.name == "mirror":
@@ -1564,13 +1708,12 @@ class Grid:
         bx, by, j, copy = self.step_backward(x, y, to_vec(cell.direction))
         fx, fy, k, _ = self.step_forward(x, y, to_vec((cell.direction + front_output)))
         if copy is None: return
-        copy.direction += front_output
         g_a = gen_as(copy, to_side(copy.direction, to_dir(j)))
         if g_a is False: return
-        copy = g_a
-        copy.oldx = bx
-        copy.oldy = by
-        if self.push_cell(fx, fy, to_vec((cell.direction + front_output)), {"replacecell": copy}):
+        g_a.oldx = bx
+        g_a.oldy = by
+        g_a.direction += front_output
+        if self.push_cell(fx, fy, to_vec((cell.direction + front_output)), {"replacecell": g_a}):
             if cell.name == "single cell generator":
                 cell.vars["full"] = True
 
@@ -1622,6 +1765,11 @@ class Grid:
             for k, (i, j, c) in neighbor_func(x, y).items():
                 if not c: continue
                 self.disable_cell(i, j)
+        if cell.name == "ifier":
+            neighbor_func = self.get_neighbors if cell.direction % 1 == 0 else self.get_diagonals
+            for k, (i, j, c) in neighbor_func(x, y).items():
+                if not c: continue
+                self.ify_cell(i, j, cell.storing)
 
     def DoEnabler(self, x, y, cell):
         if cell.name == "enabler":
@@ -1629,6 +1777,17 @@ class Grid:
             for k, (i, j, c) in neighbor_func(x, y).items():
                 if not c: continue
                 self.enable_cell(i, j)
+
+    def DoLogicArrows(self, x, y, cell):
+        if cell.name == "la source":
+            neighbor_func = self.get_neighbors if cell.direction % 1 == 0 else self.get_diagonals
+            for k, (i, j, c) in neighbor_func(x, y).items():
+                if not c: continue
+                self.la_power_cell(i, j, to_side(c.direction, k))
+        if cell.name == "la arrow":
+            nx, ny, ndir, ncell = self.step_forward(x, y, to_vec(cell.direction))
+            if ncell and cell.vars.get("la_powered", False):
+                self.la_power_cell(nx, ny, to_side(ncell.direction, to_dir(ndir)))
 
     def do_basic_gear(self, gear_x, gear_y, rotation):
         neighbors = self.get_surrounding(gear_x, gear_y)
@@ -1666,5 +1825,56 @@ class Grid:
         if "fast" in cell.name:
             rotation *= 1.5
         self.do_basic_gear(x, y, rotation)
+
+
+def _sig(v):
+    if isinstance(v, Cell):
+        return (v.name, v._direction, _sig(v.properties), _sig(vars(v.effects)), _sig(v.vars), len(v.eaten))
+    if isinstance(v, dict):
+        return tuple(sorted(((str(k), _sig(x)) for k, x in v.items()), key=lambda kv: kv[0]))
+    if isinstance(v, (list, tuple)):
+        return tuple(_sig(i) for i in v)
+    if isinstance(v, Vector):
+        return ("vec", v.x, v.y)
+    return v
+
+
+class _Scratch(Grid):
+    def __init__(self, base):
+        self.base = base
+        self.width, self.height = base.width, base.height
+        self.ticks = base.ticks
+        self.eaten = []
+        self.positions = weakref.WeakKeyDictionary()
+        self.layer = {}  # (x, y) -> this view's version of the square (a Cell or None)
+
+    def __getitem__(self, key):
+        x, y = key
+        if x is None or y is None: return None
+        if not (0 <= x < self.width and 0 <= y < self.height): return None
+        pos = (x, y)
+        if pos in self.layer:
+            return self.layer[pos]
+        c = self.base.grid[x][y]
+        if c is not None:
+            n = c.copy()
+            n.vars = deepcopy(c.vars)
+            n.oldcell = c.oldcell
+            n.anim_center = c.anim_center
+            n.x, n.y = x, y
+            self.positions[n] = pos
+            c = n
+        self.layer[pos] = c
+        return c
+
+    def __setitem__(self, key, value):
+        x, y = key
+        if x is None or y is None: return
+        if not (0 <= x < self.width and 0 <= y < self.height): return
+        self.layer[(x, y)] = value
+        if value is not None:
+            self.positions[value] = (x, y)
+            value.x = x
+            value.y = y
 
 grid = Grid(grid_width, grid_height)

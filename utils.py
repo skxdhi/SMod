@@ -31,6 +31,17 @@ def get_darkest_color(surface: pygame.Surface):
     sorted_colors = sorted(unique_colors, key=get_brightness)
     return sorted_colors[0]
 
+def get_item(lst, index, default=None):
+    try:
+        return lst[index]
+    except IndexError:
+        return default
+
+def replace(obj1, obj2):
+    if not isinstance(obj2, type(obj1)):
+        raise TypeError
+    vars(obj1).update(vars(obj2))
+
 def distance(a: tuple, b: tuple):
     ax, ay = a
     bx, by = b
@@ -51,6 +62,9 @@ def lerp(a, b, t):
     if a is None: return b
     diff = (b - a)
     return a + diff*t
+
+def ease_out(a, b, t):
+    return lerp(a, b, 1-(1-t)**2)
 
 def lerp_angle(a, b, t):
     if a is None: return b
