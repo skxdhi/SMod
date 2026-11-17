@@ -228,6 +228,9 @@ celltypes = {
     "ifier": {"desc": "Makes adjacent cells act like the cell the Ifier is storing."},
     "fast puller": {"desc": "A Puller that moves forward twice, (NOT THE SAME AS THE LEAPER PULLER)."},
     "super puller": {"desc": "A Puller that moves forward until it cannot anymore."},
+    "coin extractor": {"desc": "Takes an adjustable amount of coins from the cell behind it and gives it to the cell in the front."},
+    "super coin extractor": {"desc": "A Coin Extractor that takes coins all at once."},
+    "adjustable coin": {"desc": "A Coin that you can change the cost / value of."},
 }
 
 subcategories = {
@@ -239,7 +242,7 @@ subcategories = {
     "pullers": ["puller", "slow puller", "fast puller", "super puller", "leaper puller", "advancer"],
     "pushables": ["push", "zero directional", "one directional", "two directional", "slide",
                   "three directional", "random push", "arrow", "helix", "lichen"],
-    "coins": ["coin", "anti coin", "chocolate coin"],
+    "coins": ["coin", "coin extractor", "super coin extractor", "coin diverger", "anti coin", "adjustable coin", "chocolate coin"],
     "weights": ["weight", "anti weight", "bias", "gold", "lead", "nano weight", "anti nano weight"
                 , "resistance", "conductance", "bread", "adjustable weight", "a weight"],
     "rotators": ["cw 90 rotator", "cw 45 rotator", "cw 135 rotator", "ccw 90 rotator", "ccw 45 rotator",
@@ -356,6 +359,12 @@ adjustables = {
     ],
     "coin diverger": [
         make_adj_element("Integer", 1, "Cost"),
+    ],
+    "coin extractor": [
+        make_adj_element("Natural", 1, "Cost"),
+    ],
+    "adjustable coin": [
+        make_adj_element("Integer", 5, "Value"),
     ],
 }
 
@@ -1039,6 +1048,8 @@ after_draw_funcs = {
     "coin diverger": draw_number("Cost"),
     "x generatable": draw_number("X"),
     "metageneratable": draw_number("Meta", offset_x=0.25, offset_y=0.25),
+    "adjustable coin": draw_number("Value"),
+    "coin extractor": draw_number("Cost"),
 }
 
 

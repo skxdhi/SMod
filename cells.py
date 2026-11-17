@@ -94,6 +94,10 @@ def is_destroyer(cell, other_cell, side):
 def is_collectable(cell, side):
     return get_tag(cell.name, "collectable", side, cell, default=False)
 
+def is_nonexistent(cell, side):
+    collectable = get_tag(cell.name, "collectable", side, cell, default=False)
+    return collectable
+
 def nudge_into(cell, side):
     destroyer = get_tag(cell.name, "isdestroyer", side, cell, default=False)
     collectable = get_tag(cell.name, "collectable", side, cell, default=False)
@@ -163,6 +167,7 @@ add_tag("collectable", {
     "coin": True,
     "anti coin": True,
     "chocolate coin": True,
+    "adjustable coin": True,
 })
 
 def to_vec(direction):
@@ -393,6 +398,8 @@ subticks = [
     make_subtick("super mover", directional=True, reversed=True),
     make_subtick("mover",directional=True,reversed=True),
     make_subtick("nudger",directional=True),
+    make_subtick("super coin extractor",directional=True),
+    make_subtick("coin extractor",directional=True),
     make_subtick("player",directional=True),
     make_subtick("spooner",directional=True),
 ]
@@ -560,6 +567,17 @@ class Grid:
             cell.updated = True
         else:
             cell.noupdate = False
+
+    def get_coin_price(self, cell):
+        if cell.name == "coin":
+            return 1
+        elif cell.name == "anti coin":
+            return -1
+        elif cell.name == "chocolate coin":
+            return 0
+        elif cell.name == "adjustable coin":
+            return cell.properties["Value"]
+        return None
 
     def get_neighbors(self, x, y, dist=1, flags=None):
         flags = flags or {}
@@ -740,6 +758,7 @@ class Grid:
         vars["base"] = vars["lastcell"].copy() if vars.get("lastcell") is not None else None
         vars["lastcell"] = vars["lastcell"].copy() if vars.get("lastcell") is not None else None
         vars["end"] = None
+        vars["end_raw"] = None
         vars["blocked"] = False
         end_x, end_y = x, y
         start_x, start_y = x, y
@@ -794,6 +813,7 @@ class Grid:
             to_copy = cell.copy()
             to_copy.direction += to_dir(direction) - cell.direction
             vars["end"] = to_copy
+            vars["end_raw"] = cell
         return end_x, end_y, direction, vars
 
     def step_backward(self, x, y, direction, vars=None):
@@ -1048,8 +1068,8 @@ class Grid:
         elif cell.name in ["inertia", "rotatable inertia"]:
             cell.vars["momentum"] = {"direction": direction, "force": flags["force"]}
 
-        if cell.name in ("coin", "anti coin", "chocolate coin"):
-            amount = (1 if cell.name == "coin" else (-1 if cell.name == "anti coin" else 0))
+        if self.get_coin_price(cell) is not None:
+            amount = self.get_coin_price(cell)
             if lastpos is not None and self[*lastpos] is not None:
                 self[*lastpos].vars["coins"] += amount
                 self[x, y] = None
@@ -1727,7 +1747,6 @@ class Grid:
             self.push_cell(fx, fy, k, {"replacecell": c})
 
         cx, cy = x, y
-        i = 0
         while True:
             cx, cy, _, end_vars = self.step_forward(cx, cy, to_vec(cell.direction+front_output))
             cc = end_vars["end"]
@@ -1735,7 +1754,6 @@ class Grid:
                 break
             elif cc.name == "supergenstorage":
                 self[cx, cy] = self[cx, cy].storing_raw
-            i += 1
 
     def DoConverter(self, x, y, cell):
         bx, by, j, back_vars = self.step_backward(x, y, to_vec(cell.direction))
@@ -1764,14 +1782,42 @@ class Grid:
         copy = back_vars["end"]
         fx, fy, k, _ = self.step_forward(x, y, to_vec((cell.direction + front_output)))
         if copy is None: return
+        if is_nonexistent(copy, to_side(copy.direction, to_dir(j))): return
         g_a = gen_as(copy, to_side(copy.direction, to_dir(j)))
         if g_a is False: return
-        g_a.oldx = bx
-        g_a.oldy = by
-        g_a.direction += front_output
+        if g_a is not None:
+            g_a.oldx = bx
+            g_a.oldy = by
+            g_a.direction += front_output
         if self.push_cell(fx, fy, to_vec((cell.direction + front_output)), {"replacecell": g_a}):
             if cell.name == "single cell generator":
                 cell.vars["full"] = True
+
+    def DoCoinExtractor(self, x, y, cell):
+        bx, by, j, back_vars = self.step_backward(x, y, to_vec(cell.direction))
+        back = back_vars["end_raw"]
+        fx, fy, k, front_vars = self.step_forward(x, y, to_vec(cell.direction))
+        target = front_vars["end_raw"]
+        if back is None or target is None: return
+        if self.get_coin_price(back) is not None:
+            target.vars["coins"] += self.get_coin_price(back)
+            self[bx, by] = None
+        elif back.vars["coins"] >= cell.properties["Cost"]:
+            target.vars["coins"] += cell.properties["Cost"]
+            back.vars["coins"] -= cell.properties["Cost"]
+
+    def DoSuperCoinExtractor(self, x, y, cell):
+        bx, by, j, back_vars = self.step_backward(x, y, to_vec(cell.direction))
+        back = back_vars["end_raw"]
+        fx, fy, k, front_vars = self.step_forward(x, y, to_vec(cell.direction))
+        target = front_vars["end_raw"]
+        if back is None or target is None: return
+        if self.get_coin_price(back) is not None:
+            target.vars["coins"] += self.get_coin_price(back)
+            self[bx, by] = None
+        elif back.vars["coins"] > 0:
+            target.vars["coins"] += back.vars["coins"]
+            back.vars["coins"] = 0
 
     def DoRedirector(self, x, y, cell):
         neighbor_func = self.get_neighbors if cell.direction % 1 == 0 else self.get_diagonals
