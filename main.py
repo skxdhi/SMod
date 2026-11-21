@@ -231,6 +231,8 @@ celltypes = {
     "coin extractor": {"desc": "Takes an adjustable amount of coins from the cell behind it and gives it to the cell in the front."},
     "super coin extractor": {"desc": "A Coin Extractor that takes coins all at once."},
     "adjustable coin": {"desc": "A Coin that you can change the cost / value of."},
+    "walrus coin": {"desc": "An Adjustable Coin that sets the amount of coins instead of adding."},
+    "weak enemy": {"desc": "An Enemy that does not kill the cell it dies to."},
 }
 
 subcategories = {
@@ -242,7 +244,7 @@ subcategories = {
     "pullers": ["puller", "slow puller", "fast puller", "super puller", "leaper puller", "advancer"],
     "pushables": ["push", "zero directional", "one directional", "two directional", "slide",
                   "three directional", "random push", "arrow", "helix", "lichen"],
-    "coins": ["coin", "coin extractor", "super coin extractor", "coin diverger", "anti coin", "adjustable coin", "chocolate coin"],
+    "coins": ["coin", "coin extractor", "super coin extractor", "coin diverger", "anti coin", "adjustable coin", "walrus coin", "chocolate coin"],
     "weights": ["weight", "anti weight", "bias", "gold", "lead", "nano weight", "anti nano weight"
                 , "resistance", "conductance", "bread", "adjustable weight", "a weight"],
     "rotators": ["cw 90 rotator", "cw 45 rotator", "cw 135 rotator", "ccw 90 rotator", "ccw 45 rotator",
@@ -364,6 +366,9 @@ adjustables = {
         make_adj_element("Natural", 1, "Cost"),
     ],
     "adjustable coin": [
+        make_adj_element("Integer", 5, "Value"),
+    ],
+    "walrus coin": [
         make_adj_element("Integer", 5, "Value"),
     ],
 }
@@ -1050,6 +1055,7 @@ after_draw_funcs = {
     "metageneratable": draw_number("Meta", offset_x=0.25, offset_y=0.25),
     "adjustable coin": draw_number("Value"),
     "coin extractor": draw_number("Cost"),
+    "walrus coin": draw_number("Value"),
 }
 
 
@@ -1314,7 +1320,9 @@ def do_camera():
 
     plrcalc = calc_player_cam()
     if plrcalc is not None and sim_running:
-        camera_x, camera_y = plrcalc
+        k = 1 - math.exp(-10 * dt)
+        camera_x += (plrcalc[0] - camera_x) * k
+        camera_y += (plrcalc[1] - camera_y) * k
 
 
 def tick():

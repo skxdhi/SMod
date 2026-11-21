@@ -168,6 +168,7 @@ add_tag("collectable", {
     "anti coin": True,
     "chocolate coin": True,
     "adjustable coin": True,
+    "walrus coin": True,
 })
 
 def to_vec(direction):
@@ -568,7 +569,7 @@ class Grid:
         else:
             cell.noupdate = False
 
-    def get_coin_price(self, cell):
+    def get_coin_price(self, cell, target=None):
         if cell.name == "coin":
             return 1
         elif cell.name == "anti coin":
@@ -577,6 +578,10 @@ class Grid:
             return 0
         elif cell.name == "adjustable coin":
             return cell.properties["Value"]
+        elif cell.name == "walrus coin":
+            if target is None:
+                return 0
+            return cell.properties["Value"] - target.vars["coins"]
         return None
 
     def get_neighbors(self, x, y, dist=1, flags=None):
@@ -1069,12 +1074,13 @@ class Grid:
             cell.vars["momentum"] = {"direction": direction, "force": flags["force"]}
 
         if self.get_coin_price(cell) is not None:
-            amount = self.get_coin_price(cell)
             if lastpos is not None and self[*lastpos] is not None:
+                amount = self.get_coin_price(cell, self[*lastpos])
                 self[*lastpos].vars["coins"] += amount
                 self[x, y] = None
                 flags["break"] = True
             elif flags["replacecell"] is not None:
+                amount = self.get_coin_price(cell, flags["replacecell"])
                 flags["replacecell"].vars["coins"] += amount
                 self[x, y] = None
                 flags["break"] = True
@@ -1800,7 +1806,7 @@ class Grid:
         target = front_vars["end_raw"]
         if back is None or target is None: return
         if self.get_coin_price(back) is not None:
-            target.vars["coins"] += self.get_coin_price(back)
+            target.vars["coins"] += self.get_coin_price(back, target)
             self[bx, by] = None
         elif back.vars["coins"] >= cell.properties["Cost"]:
             target.vars["coins"] += cell.properties["Cost"]
@@ -1813,7 +1819,7 @@ class Grid:
         target = front_vars["end_raw"]
         if back is None or target is None: return
         if self.get_coin_price(back) is not None:
-            target.vars["coins"] += self.get_coin_price(back)
+            target.vars["coins"] += self.get_coin_price(back, target)
             self[bx, by] = None
         elif back.vars["coins"] > 0:
             target.vars["coins"] += back.vars["coins"]
