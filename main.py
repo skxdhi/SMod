@@ -1,5 +1,6 @@
 import math
 import os
+import random
 import sys
 import textwrap
 from copy import deepcopy
@@ -11,6 +12,7 @@ import utils
 from utils import compose, lerp, lerp_angle, polar_lerp
 
 import pygame
+from functools import lru_cache
 
 
 def resource_path(relative_path):
@@ -38,6 +40,8 @@ import ui
 GameUI = ui.UI([])
 MainMenuUI = ui.UI([])
 AdjMenuUI = ui.UI([])
+SettingsMenuUI = ui.UI([])
+CreditsMenuUI = ui.UI([])
 
 adj_overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
 adj_overlay.fill((80,) * 4)
@@ -67,6 +71,9 @@ adj_menu_name = None
 selected_adj_index = 0
 adj_text_input = None
 
+coolbgthings = []
+last_spawn_time_of_coolbgthing = 0
+
 celltypes = {
     "mover": {"desc": "Moves one space per tick in the direction it is pointing, pushing the cells in its way."},
     "push": {"desc": "Does absolutely nothing, but cells can still interact with it."},
@@ -75,7 +82,7 @@ celltypes = {
     "slide": {"desc": "Can only be pushed on the indicated sides."},
     "three directional": {"desc": "Can ony be pushed on the indicated sides."},
     "zero directional": {"desc": "Can ony be pushed on the indicated sides, except there are no indicated sides."},
-    "random push": {"desc": "A Push cell that has a 1/2 chance to not be movable."},
+    "random push": {"desc": "A Push cell that has an adjustable chance to not be movable."},
     "cw 90 rotator": {"desc": "Rotates neighboring cells 90 degrees clockwise."},
     "ccw 90 rotator": {"desc": "Rotates neighboring cells 90 degrees counterclockwise."},
     "180 rotator": {"desc": "Rotates neighboring cells 180 degrees."},
@@ -98,7 +105,7 @@ celltypes = {
         "desc": "Acts like a Weight cell on the front and an Anti Weight on the back; It doesnt do anything on the other sides."},
     "gold": {"desc": "Can only be pushed by orthogonal forces."},
     "lead": {"desc": "Can only be pushed by diagonal forces."},
-    "ghost": {"desc": "A Wall that cannot be generated."},
+    "ghost": {"desc": "A Wall that cannot be generated, like the Spirit cell."},
     "jam": {"desc": "When a Gear tries to move this cell, it will jam the gear instead (stop it)."},
     "straight diverger": {"desc": "Like a Curve Diverger thats bent to be straight."},
     "diode diverger": {"desc": "A Straight Diverger that can only diverge on its back side."},
@@ -130,7 +137,7 @@ celltypes = {
         "desc": "Stores the cell that moves into it, if it already has a cell it will push it out on the opposite side."},
     "repulsor": {"desc": "Pushes neighboring cells away from it."},
     "slow mover": {"desc": "A Mover that moves every other tick."},
-    "adj test": {"desc": "test"},
+    #"adj test": {"desc": "test"},
     "jump trash": {"desc": "A Trash that moves away from cells it eats."},
     "self": {"desc": "When a storage like cell hold this cell, it makes it hold a copy of itself instead."},
     "texter": {"desc": "Change the cells Text parameter to display text."},
@@ -142,7 +149,7 @@ celltypes = {
     "puller": {
         "desc": "A Mover that moves the row behind it forwards instead of the row in front of it; Stops if there is a cell in the way."},
     "player": {"desc": "Moves depending on which arrow key you press."},
-    "disabler": {"desc": "Makes neighboring cells act like pushables."},
+    "disabler": {"desc": "Makes neighboring cells act like push cells."},
     "enabler": {"desc": "Prevents adjacent cells from being disabled."},
     "ana rotator": {"desc": "When cells are rotated by this cell twice they get rotated 180 degrees clockwise."},
     "kata rotator": {
@@ -193,54 +200,91 @@ celltypes = {
     "fast ccw gear": {"desc": "Rotates neighboring cells 135 degrees counterclockwise around it."},
     "jelly": {"desc": "When a Gear tries to move this cell, the Gear will skip it instead."},
     "anti coin": {
-        "desc": "When cells collect it, they lose 1 coin from their coin count. Cells can have negative coins (dont ask)."},
+        "desc": "When cells collect it, they lose 1 coin from their coin count. Cells can have negative coins (ig debt)."},
     "nano weight": {"desc": "Acts like a wall if its the first cell in the row to be pushed."},
     "anti nano weight": {"desc": "Acts like a wall if its not the first cell in the row to be pushed."},
-    #"coin diverger": {"desc": "A Bistraight Diverger that takes away an adjustable amount of coins from cells, doesnt let cells pass through that dont have sufficient currency."},
+    "coin diverger": {"desc": "A Bistraight Diverger that takes away an adjustable amount of coins from cells, doesnt let cells pass through that dont have sufficient currency."},
     "chocolate coin": {
         "desc": "When cells collect it, they.... uhhhmm.... you know what lemme try one. *chomp*. SOGOODANDYUMMYANDDELICIOUSAN- *dies*. Sorry I had to take over for skidhi, it doesnt give you anything."},
+    "rotatable inertia": {"desc": "Inertia whose force rotates when rotated."},
+    "fast mover": {"desc": "A Mover that moves forward twice, (NOT THE SAME AS THE LEAPER)."},
+    "converter": {"desc": "Attempts to convert the cell in front of it into the cell behind it."},
+    "physical trash": {"desc": "A Trash that pushes the cell in front of the direction the cell came in."},
+    "super mover": {"desc": "A Mover that moves forward until it cannot anymore."},
+    "x generatable": {
+        "desc": "When this cell is being generated it instead makes the generator create another X Generatable with X lowered by 1, if X is 0 it acts like Ungeneratable."},
+    "spirit": {
+        "desc": "An Ungeneratable that does not exert force when generated."},
+    "dextrophysical trash": {"desc": "A Trash that pushes the cell to the right of the direction the cell came in."},
+    "levophysical trash": {"desc": "A Trash that pushes the cell to the left of the direction the cell came in."},
+    "a weight": {"desc": "Just your average weight that subtracts the letter \"a\" from forces."},
+    "metageneratable": {"desc": "Like an X Generatable, but index 0 is the cell inside of it instead."},
+    "forker": {"desc": "When cells enter the back, it duplicates it into two perpendicular directions."},
+    "la source": {"desc": "Emits a logic signal to all neighboring cells."},
+    "la arrow": {"desc": "Emits a logic signal to all neighboring cells."},
+    "spooner": {"desc": "When cells enter on its two indicated sides, it outputs the first one that came in (handled at the subtick level)."},
+    "resistance": {"desc": "Blocks all forces that dont have exactly 1 unit of force."},
+    "conductance": {"desc": "Blocks all forces that have exactly 1 unit of force."},
+    "ifier": {"desc": "Makes adjacent cells act like the cell the Ifier is storing."},
+    "fast puller": {"desc": "A Puller that moves forward twice, (NOT THE SAME AS THE LEAPER PULLER)."},
+    "super puller": {"desc": "A Puller that moves forward until it cannot anymore."},
+    "coin extractor": {"desc": "Takes an adjustable amount of coins from the cell behind it and gives it to the cell in the front."},
+    "super coin extractor": {"desc": "A Coin Extractor that takes coins all at once."},
+    "adjustable coin": {"desc": "A Coin that you can change the cost / value of."},
+    "walrus coin": {"desc": "An Adjustable Coin that sets the amount of coins instead of adding."},
+    "weak enemy": {"desc": "An Enemy that does not kill the cell it dies to."},
 }
 
 subcategories = {
-    "movers": ["mover", "slow mover", "helix", "skidhi 90", "leaper", "hydra", "player mover", "purple mover", "bird", "bee", "advancer"],
+    "movers": ["mover", "slow mover", "fast mover", "super mover", "helix", "skidhi 90", "leaper", "hydra", "player mover", "purple mover", "bird", "bee", "advancer"],
     "players": ["player", "player mover", "anti player", "pull player"],
     "nudgers": ["nudger"],
-    "other movers": ["inertia"],
+    "other movers": ["inertia", "rotatable inertia"],
     "crushers": ["crusher"],
-    "pullers": ["puller", "slow puller", "leaper puller", "advancer"],
-    "pushables": ["push", "zero directional", "one directional", "two directional", "slide", "three directional",
-                  "random push", "arrow", "helix", "lichen"],
-    "coins": ["coin", "anti coin", "chocolate coin"],
-    "weights": ["weight", "anti weight", "bias", "gold", "lead", "nano weight", "anti nano weight", "bread", "adjustable weight"],
+    "pullers": ["puller", "slow puller", "fast puller", "super puller", "leaper puller", "advancer"],
+    "pushables": ["push", "zero directional", "one directional", "two directional", "slide",
+                  "three directional", "random push", "arrow", "helix", "lichen"],
+    "coins": ["coin", "coin extractor", "super coin extractor", "coin diverger", "anti coin", "adjustable coin", "walrus coin", "chocolate coin"],
+    "weights": ["weight", "anti weight", "bias", "gold", "lead", "nano weight", "anti nano weight"
+                , "resistance", "conductance", "bread", "adjustable weight", "a weight"],
     "rotators": ["cw 90 rotator", "cw 45 rotator", "cw 135 rotator", "ccw 90 rotator", "ccw 45 rotator",
-                 "ccw 135 rotator", "random 90 rotator", "random 45 rotator", "random 135 rotator", "180 rotator"],
-    "slow rotators": ["cw 22.5 rotator", "ccw 22.5 rotator", "random 22.5 rotator", "ana rotator", "half ana rotator", "kata rotator",
-                      "half kata rotator", "adjustable rotator"],
-    "generators": ["generator", "cw generator", "ccw generator", "single cell generator"],
+                 "ccw 135 rotator", "random 90 rotator", "random 45 rotator", "random 135 rotator",
+                 "180 rotator"],
+    "slow rotators": ["cw 22.5 rotator", "ccw 22.5 rotator", "random 22.5 rotator", "ana rotator",
+                      "half ana rotator", "kata rotator", "half kata rotator",
+                      "adjustable rotator"],
+    "generators": ["generator", "cw generator", "ccw generator",
+                   "single cell generator"],
     "super generators": ["super generator", "cw super generator", "ccw super generator"],
-    "generatables": ["ungeneratable", "monogeneratable"],
+    "generatables": ["ungeneratable", "monogeneratable", "x generatable", "metageneratable", "spirit"],
     "walls": ["wall", "ghost"],
-    "trashes": ["trash", "jump trash", "attack trash", "squish trash", "bulk trash", "omega trash"],
+    "trashes": ["trash", "jump trash", "attack trash", "physical trash", "dextrophysical trash", "levophysical trash", "squish trash", "bulk trash", "omega trash"],
     "enemies": ["enemy", "squish enemy", "bulk enemy", "bread"],
     "divergers": ["curve diverger", "acute curve diverger", "obtuse curve diverger", "bicurve diverger",
                   "straight diverger", "bistraight diverger", "diode diverger"],
+    "forkers": ["forker"],
+    "spooners": ["spooner"],
+    "coin divergers": ["coin diverger"],
     "redirectors": ["redirector"],
     "freezers": ["freezer", "winter", "thawer", "summer"],
-    "disablers": ["disabler", "enabler"],
+    "disablers": ["disabler", "ifier", "enabler"],
     "electrocutors": ["electrocutor", "copper"],
-    "gears": ["cw gear", "slow cw gear", "fast cw gear", "ccw gear", "slow ccw gear", "fast ccw gear", "180 gear", "gyro", "jam", "jelly"],
+    "gears": ["cw gear", "slow cw gear", "fast cw gear", "ccw gear",
+              "slow ccw gear", "fast ccw gear", "180 gear", "gyro", "jam", "jelly"],
     "mirrors": ["mirror"],
-    "storing": ["storage", "self", "meta", "void"],
+    "storing": ["storage", "self", "meta", "void", "metageneratable", "ifier"],
     "repulsors": ["repulsor"],
     "impulsors": ["impulsor"],
     "other": ["texter"],
-    "brightness": ["light", "dark", "night"]
+    "brightness": ["light", "dark", "night"],
+    "converters": ["converter"],
+    "logic arrows": ["la source", "la arrow"],
 }
 
 categories = {
     "Base": [subcategories["pushables"], subcategories["weights"], subcategories["walls"], images["push"]],
     "Movers": [subcategories["movers"], subcategories["pullers"], subcategories["crushers"], subcategories["nudgers"], subcategories["players"], subcategories["other movers"], images["mover"]],
-    "Recreation": [subcategories["generators"], subcategories["super generators"], subcategories["generatables"],
+    "Recreation": [subcategories["generators"], subcategories["super generators"], subcategories["converters"], subcategories["generatables"],
                    images["generator"]],
     "Rotators": [subcategories["rotators"], subcategories["slow rotators"], subcategories["redirectors"],
                  subcategories["gears"],
@@ -248,9 +292,9 @@ categories = {
     "Forcers": [subcategories["repulsors"], subcategories["impulsors"], subcategories["gears"],
                 subcategories["mirrors"], images["repulsor"]],
     "Destroyers": [subcategories["trashes"], subcategories["enemies"], images["trash"]],
-    "Divergers": [subcategories["divergers"], images["curve diverger"]],
+    "Divergers": [subcategories["divergers"], subcategories["forkers"], subcategories["spooners"], subcategories["coin divergers"], images["curve diverger"]],
     "Effect Givers": [subcategories["freezers"], subcategories["disablers"], subcategories["electrocutors"], images["freezer"]],
-    "Other": [subcategories["storing"], subcategories["brightness"], subcategories["coins"], subcategories["other"],
+    "Other": [subcategories["storing"], subcategories["brightness"], subcategories["coins"], subcategories["logic arrows"], subcategories["other"],
               images["void"]],
 }
 
@@ -309,8 +353,23 @@ adjustables = {
     "meta": [
         make_adj_element("Natural", 3, "Index"),
     ],
+    "x generatable": [
+        make_adj_element("Natural", 2, "X"),
+    ],
+    "metageneratable": [
+        make_adj_element("Natural", 2, "Meta"),
+    ],
     "coin diverger": [
         make_adj_element("Integer", 1, "Cost"),
+    ],
+    "coin extractor": [
+        make_adj_element("Natural", 1, "Cost"),
+    ],
+    "adjustable coin": [
+        make_adj_element("Integer", 5, "Value"),
+    ],
+    "walrus coin": [
+        make_adj_element("Integer", 5, "Value"),
     ],
 }
 
@@ -343,6 +402,10 @@ def add_ui(element, tag=None, menu="Game"):
         MainMenuUI.elements.append(element)
     if menu == "Adj":
         AdjMenuUI.elements.append(element)
+    if menu == "Settings":
+        SettingsMenuUI.elements.append(element)
+    if menu == "Credits":
+        CreditsMenuUI.elements.append(element)
 
 
 def select_cell(b, c):
@@ -415,7 +478,7 @@ def update_cell_buttons():
 def format_text(text: str):
     r_text = ""
     for word in text.split():
-        if word in ["cw", "ccw"]:
+        if word in ["cw", "ccw", "la"]:
             word = word.upper()
             r_text += word + " "
             continue
@@ -433,6 +496,8 @@ def wrap_text(text, threshold):
             wrapped_lines.extend(line_segments)
     return wrapped_lines
 
+def get_random_cell_name():
+    return random.choice(list(celltypes.keys()))
 
 def draw_infobox():
     mouse_x, mouse_y = pygame.mouse.get_pos()
@@ -508,6 +573,43 @@ def draw_main_infobox():
 
         screen.blit(title_text, (mouse_x + 10, mouse_y + 5))
 
+def draw_settings_infobox():
+    mouse_x, mouse_y = pygame.mouse.get_pos()
+    btn_hovering = SettingsMenuUI.hover()
+
+    if btn_hovering is not None and btn_hovering.tag[0] in ["Settings"]:
+        title_text = font.render(btn_hovering.tag[1], True, (255,) * 3)
+
+        w = max(title_text.get_width() + 20, 150)
+        h = max(title_text.get_height() + 15, 50)
+
+        mouse_y = min(mouse_y, screen.get_height() - h)
+        mouse_x = min(mouse_x, screen.get_width() - w)
+
+        box_rect = pygame.Rect(mouse_x, mouse_y, w, h)
+        pygame.draw.rect(screen, (80,) * 3, box_rect)
+        pygame.draw.rect(screen, (60,) * 3, box_rect, width=5)
+
+        screen.blit(title_text, (mouse_x + 10, mouse_y + 5))
+
+def draw_credits_infobox():
+    mouse_x, mouse_y = pygame.mouse.get_pos()
+    btn_hovering = CreditsMenuUI.hover()
+
+    if btn_hovering is not None and btn_hovering.tag[0] in ["Credits"]:
+        title_text = font.render(btn_hovering.tag[1], True, (255,) * 3)
+
+        w = max(title_text.get_width() + 20, 150)
+        h = max(title_text.get_height() + 15, 50)
+
+        mouse_y = min(mouse_y, screen.get_height() - h)
+        mouse_x = min(mouse_x, screen.get_width() - w)
+
+        box_rect = pygame.Rect(mouse_x, mouse_y, w, h)
+        pygame.draw.rect(screen, (80,) * 3, box_rect)
+        pygame.draw.rect(screen, (60,) * 3, box_rect, width=5)
+
+        screen.blit(title_text, (mouse_x + 10, mouse_y + 5))
 
 def close_adj_menu(b):
     global adj_menu_name, selected_adj_index, adj_text_input
@@ -766,15 +868,7 @@ def toggle_sim(b):
 
 def step_sim(b):
     global stepping, sim_running, sim_button, lerp_time
-    if stepping: return
-    if sim_running:
-        toggle_sim(sim_button)
-        return
     stepping = True
-    lerp_time = 0
-    if sim_running:
-        toggle_sim(sim_button)
-    tick()
 
 
 def save_state(b):
@@ -839,7 +933,12 @@ def quit_app(b):
 
 
 def go_to_credits(b):
-    pass
+    global menu
+    menu = "Credits"
+
+def go_to_settings(b):
+    global menu
+    menu = "Settings"
 
 
 play_button = ui.ImageButton(500, 240, 150, 150, images["mover"], compose(lambda x: play_sound("click"), go_to_game),
@@ -850,6 +949,24 @@ add_ui(quit_button, ["Main Menu", "Quit"], menu="Main Menu")
 credits_button = ui.ImageButton(500, 40, 150, 150, images["push"],
                                 compose(lambda x: play_sound("click"), go_to_credits), anchor="left-bottom")
 add_ui(credits_button, ["Main Menu", "Credits"], menu="Main Menu")
+settings_button = ui.ImageButton(500, 240, 150, 150, images["transmitter"],
+                                compose(lambda x: play_sound("click"), go_to_settings), anchor="right-bottom")
+add_ui(settings_button, ["Main Menu", "Settings"], menu="Main Menu")
+
+#######################################
+
+add_ui(ui.Slider(
+    100, 50, 800, 50,
+    min_val=0, max_val=100, value=int(100),
+    on_change=lambda v: amb.set_volume(v/100),
+    font=font, label="Volume", label_width=30, value_width=60,
+    fill_color=(40,)*3,
+), ["Settings Control", f"slider_volume"], menu="Settings")
+set_back_button = ui.ImageButton(30, 30, 70, 70, pygame.transform.rotate(images["mover"], 180), compose(lambda x: play_sound("click"), quit_game), anchor="right")
+add_ui(set_back_button, ["Settings", "Back"], menu="Settings")
+
+cred_back_button = ui.ImageButton(30, 30, 70, 70, pygame.transform.rotate(images["mover"], 180), compose(lambda x: play_sound("click"), quit_game), anchor="right")
+add_ui(cred_back_button, ["Credits", "Back"], menu="Credits")
 
 def draw_text(x, y, direction, name, flags, text, outline=False, color=(255, 255, 255)):
     if flags.get("shadow"):
@@ -858,15 +975,15 @@ def draw_text(x, y, direction, name, flags, text, outline=False, color=(255, 255
     f = dict(flags)
     f["raw"] = True
     f["nearest"] = True
+    scale = cell_size / 32 * f.get("size", 1)
     if outline:
-        f["source"] = small_font.render(text, False, outline)
-        f["source"] = pygame.transform.scale_by(f["source"], (f.get("size", 1), f.get("size", 1)))
+        outline = (outline.r, outline.g, outline.b)
+        f["source"] = get_text_surf(text, outline, scale)
         px = max(1, round(cell_size / 32))
         step = px / cell_size
         for dx, dy in ((0, 1), (0, -1), (-1, 0), (1, 0), (1, 1), (1, -1), (-1, 1), (-1, -1)):
             draw_cell(x + dx * step, y + dy * step, direction, name, f)
-    f["source"] = small_font.render(text, False, color)
-    f["source"] = pygame.transform.scale_by(f["source"], (f.get("size", 1), f.get("size", 1)))
+    f["source"] = get_text_surf(text, color, scale)
     draw_cell(x, y, direction, name, f)
 
 def draw_storage(x, y, direction, name, flags):
@@ -891,16 +1008,15 @@ def draw_texter(x, y, direction, name, flags):
         return
     draw_text(x, y, direction, name, f, txt, color=flags["cell"].properties["Color"])
 
-def draw_disable_storage(x, y, direction, name, flags):
-    store = flags["cell"].storing_raw
-    if store is not None:
-        draw_cell(x, y, direction, store.name, flags)
-    draw_cell(x, y, direction, "effects/disabled", flags)
-
 def draw_single_cell_generator(x, y, direction, name, flags):
     f = dict(flags)
     f["raw"] = True
     draw_cell(x, y, direction, name + " full" if flags["cell"].vars.get("full", False) else name, f)
+
+def draw_la(x, y, direction, name, flags):
+    f = dict(flags)
+    f["raw"] = True
+    draw_cell(x, y, direction, name + " off" if not flags["cell"].vars.get("la_powered", False) else name, f)
 
 def draw_fraction(numerator_name, denominator_name):
     def wrapper(x, y, direction, name, flags):
@@ -920,9 +1036,11 @@ def draw_number(number_name, offset_y=0, offset_x=0, offset_size=1):
 draw_funcs = {
     "storage": draw_storage,
     "texter": draw_texter,
-    "disablestorage": draw_disable_storage,
     "single cell generator": draw_single_cell_generator,
     "meta": draw_storage,
+    "metageneratable": draw_storage,
+    "la arrow": draw_la,
+    "ifier": draw_storage,
 }
 
 after_draw_funcs = {
@@ -932,8 +1050,34 @@ after_draw_funcs = {
     "adjustable rotator": draw_fraction("Numerator", "Denominator"),
     "random push": draw_fraction("Numerator", "Denominator"),
     "meta": draw_number("Index", offset_x=0.25, offset_y=0.25),
-    "coin diverger": draw_number("Cost", offset_x=0.25, offset_y=0.25),
+    "coin diverger": draw_number("Cost"),
+    "x generatable": draw_number("X"),
+    "metageneratable": draw_number("Meta", offset_x=0.25, offset_y=0.25),
+    "adjustable coin": draw_number("Value"),
+    "coin extractor": draw_number("Cost"),
+    "walrus coin": draw_number("Value"),
 }
+
+
+@lru_cache(maxsize=4096)
+def get_transformed_surf(surf, size, angle, has_shadow=False):
+    if not surf:
+        return None
+
+    transformed = pygame.transform.scale(surf, (size, size))
+    if angle != 0:
+        transformed = pygame.transform.rotate(transformed, angle)
+    if has_shadow:
+        transformed = shadow(transformed)
+
+    return transformed
+
+@lru_cache(maxsize=4096)
+def get_text_surf(text, color, scale):
+    surf = small_font.render(text, False, color)
+    if scale != 1:
+        surf = pygame.transform.scale_by(surf, (scale, scale))
+    return surf
 
 def draw_cell(x, y, direction, name, flags=None):
     flags = flags or {}
@@ -955,27 +1099,20 @@ def draw_cell(x, y, direction, name, flags=None):
     if flags.get("size") is not None:
         ccell_size = round(cell_size * flags.get("size"))
     if ccell_size <= 0: return
-
     if flags.get("source"):
-        surf = flags["source"].copy()
-        scale = pygame.transform.scale_by if flags.get("nearest") else pygame.transform.smoothscale_by
-        surf = scale(surf, (cell_size / 32, cell_size / 32))
+        surf = flags["source"]
         center_x = screen_x + (cell_size // 2)
         center_y = screen_y + (cell_size // 2)
         rect = surf.get_rect(center=(center_x, center_y))
         if flags.get("shadow"):
-            surf = shadow(surf)
+            surf = get_transformed_surf(images[name], ccell_size, direction*-90, has_shadow=True)
         screen.blit(surf, rect)
         return
-    surf = pygame.transform.scale(images[name], (ccell_size, ccell_size))
-    angle = direction * -90
-    surf = pygame.transform.rotate(surf, angle)
+    surf = get_transformed_surf(images[name], ccell_size, direction*-90, has_shadow=flags.get("shadow", False))
 
     center_x = screen_x + (cell_size // 2)
     center_y = screen_y + (cell_size // 2)
     rect = surf.get_rect(center=(center_x, center_y))
-    if flags.get("shadow"):
-        surf = shadow(surf)
     screen.blit(surf, rect)
     if (f := after_draw_funcs.get(name)) and not flags.get("raw"):
         f(x, y, direction, name, flags)
@@ -988,10 +1125,8 @@ def draw_ghost_cell(x, y, direction, name):
     center_x = int((x * cell_size) + (cell_size // 2) - camera_x)
     center_y = int((y * cell_size) + (cell_size // 2) - camera_y)
 
-    surf = pygame.transform.scale(images[name], (cell_size, cell_size))
+    surf = get_transformed_surf(images[name], cell_size, direction * -90).copy()
     surf.set_alpha(128)
-    angle = direction * -90
-    surf = pygame.transform.rotate(surf, angle)
     rect = surf.get_rect(center=(center_x, center_y))
     screen.blit(surf, rect)
 
@@ -1011,116 +1146,128 @@ def shadow(surf, opacity=30):
 
 
 def draw_grid():
-    for x, y, cell in grid:
-        draw_cell(x, y, 0, "bg")
+    margin = 2
+    start_x = max(0, int(camera_x // cell_size) - margin)
+    start_y = max(0, int(camera_y // cell_size) - margin)
+    end_x = min(grid.width, int((camera_x + SCREEN_WIDTH) // cell_size) + margin + 1)
+    end_y = min(grid.height, int((camera_y + SCREEN_HEIGHT) // cell_size) + margin + 1)
 
-    for (cell, trashpos) in grid.eaten:
+    for x in range(start_x, end_x):
+        for y in range(start_y, end_y):
+            draw_cell(x, y, 0, "bg")
+
+    for cell, trashpos in grid.eaten:
         if cell is None: continue
         draw_cell(lerp(cell.oldx, trashpos[0], lerp_time), lerp(cell.oldy, trashpos[1], lerp_time),
                   lerp_angle(cell.olddirection, cell._direction, lerp_time), cell.name,
-                  flags={"eaten": True, "x": None, "y": None, "cell": cell,})
-    for x, y, cell in grid:
-        if cell is None: continue
+                  flags={"eaten": True, "x": None, "y": None, "cell": cell})
 
-        draw_x, draw_y = lerp(cell.oldx, x, lerp_time), lerp(cell.oldy, y, lerp_time)
-        if cell.anim_center is not None:
-            draw_x, draw_y = polar_lerp((cell.oldx, cell.oldy), (x, y), cell.anim_center, lerp_time)
+    for x in range(start_x, end_x):
+        for y in range(start_y, end_y):
+            cell = grid[x, y]
+            if cell is None: continue
 
-        draw_cell(draw_x + 0.25, draw_y + 0.25,
-                  lerp_angle(cell.olddirection, cell._direction, lerp_time),
-                  cell.name,
-                  flags={"x": x, "y": y, "cell": cell, "shadow": True}
-        )
-        for eaten in cell.eaten:
-            draw_cell(lerp(eaten.oldx, x, lerp_time), lerp(eaten.oldy, y, lerp_time),
-                      lerp_angle(eaten.olddirection, eaten._direction, lerp_time), eaten.name,
-                      flags={"eaten": True, "x": None, "y": None, "cell": eaten, })
-        draw_cell(draw_x, draw_y,
-                  lerp_angle(cell.olddirection, cell._direction, lerp_time),
-                  cell.name, flags={"x": x, "y": y, "cell": cell, })
-        if cell.vars["wrot"] != 0:
-            draw_cell(draw_x, draw_y,
-                      0,
-                      "ana rotated" if cell.vars["wrot"] > 0 else "kata rotated", flags={"x": x, "y": y})
-        if cell.vars["srot"] != 0:
-            draw_cell(draw_x, draw_y,
-                      0,
-                      "cw 22.5 rotated" if cell.vars["srot"] > 0 else "ccw 22.5 rotated", flags={"x": x, "y": y})
-            srot = round(cell.vars["srot"], 3)
-            if srot > 0:
-                srot = "+"+str(srot)
-            elif srot < 0:
-                srot = "-"+str(-srot)
+            draw_x, draw_y = lerp(cell.oldx, x, lerp_time), lerp(cell.oldy, y, lerp_time)
+            if cell.anim_center is not None:
+                draw_x, draw_y = polar_lerp((cell.oldx, cell.oldy), (x, y), cell.anim_center, lerp_time)
+
+            draw_cell(draw_x + 0.25, draw_y + 0.25,
+                      lerp_angle(cell.olddirection, cell._direction, lerp_time),
+                      cell.name, flags={"x": x, "y": y, "cell": cell, "shadow": True})
+            for eaten in cell.eaten:
+                draw_cell(lerp(eaten.oldx, x, lerp_time), lerp(eaten.oldy, y, lerp_time),
+                          lerp_angle(eaten.olddirection, eaten._direction, lerp_time), eaten.name,
+                          flags={"eaten": True, "x": None, "y": None, "cell": eaten})
+
+            if cell.vars.get("ify", None) is None:
+                draw_cell(draw_x, draw_y,
+                          lerp_angle(cell.olddirection, cell._direction, lerp_time),
+                          cell.name, flags={"x": x, "y": y, "cell": cell})
             else:
-                srot = ""
-            draw_text(draw_x, draw_y-0.1,
-                      0,
-                      "cw 22.5 rotated" if cell.vars["srot"] > 0 else "ccw 22.5 rotated", {"x": x, "y": y, "size": 0.6},
-                      srot, outline=(225, 78, 46) if cell.vars["srot"] > 0 else (46, 168, 219))
-        if cell.vars["coins"] != 0:
-            draw_cell(draw_x, draw_y,
-                      0,
-                      "coins", flags={"x": x, "y": y})
-            draw_text(draw_x, draw_y-0.325,
-                      0,
-                      "coins", {"x": x, "y": y},
-                      str(cell.vars["coins"]))
-        for effect in vars(cell.effects):
-            if not getattr(cell.effects, effect): continue
-            if isinstance(effect, list): effect = effect[0]
-            draw_cell(draw_x, draw_y,
-                      0,
-                      f"effects/{effect}", flags={"x": x, "y": y})
+                draw_cell(draw_x, draw_y,
+                          lerp_angle(cell.vars["ify"].olddirection, cell.vars["ify"]._direction, lerp_time),
+                          cell.vars["ify"].name, flags={"x": x, "y": y, "cell": cell.vars["ify"]})
+                draw_cell(draw_x, draw_y,
+                          lerp_angle(cell.olddirection, cell._direction, lerp_time),
+                          "effects/ified", flags={"x": x, "y": y})
+                draw_cell(draw_x, draw_y,
+                          lerp_angle(cell.olddirection, cell._direction, lerp_time),
+                          cell.name, flags={"x": x, "y": y, "cell": cell, "size": 0.3})
+
+            if cell.oldcell is not None:
+                draw_cell(draw_x, draw_y, cell.oldcell.direction, cell.oldcell.name,
+                          flags={"eaten": True, "x": None, "y": None, "cell": cell.oldcell})
+            if cell.vars["wrot"] != 0:
+                draw_cell(draw_x, draw_y, 0,
+                          "ana rotated" if cell.vars["wrot"] > 0 else "kata rotated", flags={"x": x, "y": y})
+            if cell.vars["srot"] != 0:
+                draw_cell(draw_x, draw_y, 0,
+                          "cw 22.5 rotated" if cell.vars["srot"] > 0 else "ccw 22.5 rotated", flags={"x": x, "y": y})
+                srot = round(cell.vars["srot"], 3)
+                if srot > 0:
+                    srot = "+" + str(srot)
+                elif srot < 0:
+                    srot = "-" + str(-srot)
+                else:
+                    srot = ""
+                draw_text(draw_x, draw_y-0.1, 0,
+                          "cw 22.5 rotated" if cell.vars["srot"] > 0 else "ccw 22.5 rotated",
+                          {"x": x, "y": y, "size": 0.6}, srot,
+                          outline=(225, 78, 46) if cell.vars["srot"] > 0 else (46, 168, 219))
+            if cell.vars["coins"] != 0:
+                draw_cell(draw_x, draw_y, 0, "coins", flags={"x": x, "y": y})
+                draw_text(draw_x, draw_y-0.325, 0, "coins", {"x": x, "y": y}, str(cell.vars["coins"]))
+            for effect in vars(cell.effects):
+                if not getattr(cell.effects, effect): continue
+                if isinstance(effect, list): effect = effect[0]
+                draw_cell(draw_x, draw_y, 0, f"effects/{effect}", flags={"x": x, "y": y})
+
+
+def cell_to_data(cell, names):
+    v = deepcopy(cell.vars)
+    stored = cell.storing_raw
+    return {
+        "n": names.index(cell.name),
+        "d": cell._direction,
+        "p": cell.properties,
+        "v": v,
+        "e": vars(cell.effects),
+        "s": cell_to_data(stored, names) if stored is not None and stored.name in names else None,
+    }
+
+def cell_from_data(d, names):
+    c = Cell(d["d"], names[d["n"]], properties=dict(d.get("p", {})))
+    v = dict(d.get("v", {}))
+    c.vars.update(v)
+    c.effects = cells.EffectList(d.get("e", {}))
+    if d.get("s") is not None:
+        c.vars["storing"] = cell_from_data(d["s"], names)
+    return c
 
 
 def save_code():
-    code = []
-    code_type = "S1"
-    cell_type_list = list(celltypes.keys())
-
-    for x, y, cell in grid:
-        if cell is None:
-            continue
-
-        pos = x + (y * grid.width)
-        cell_id = cell_type_list.index(cell.name)
-
-        state = vars(cell).copy()
-        state["name"] = cell_id
-        state["effects"] = vars(cell.effects)
-
-        code.append([pos, state])
-
-    json_str = json.dumps(code, separators=(',', ':'))
-    compressed = zlib.compress(json_str.encode('utf-8'))
-    b64_str = base64.b64encode(compressed).decode('utf-8')
-
-    return f"{code_type};{b64_str}"
+    names = list(celltypes.keys())
+    data = [[x + y * grid.width, cell_to_data(cell, names)]
+            for x, y, cell in grid
+            if cell is not None and cell.name in names]
+    raw = json.dumps(data, separators=(",", ":")).encode("utf-8")
+    return "S2;" + base64.b64encode(zlib.compress(raw)).decode("utf-8")
 
 
 def load_code(save_string):
-    parts = save_string.split(";")
-    b64_str = parts[1]
-    cell_type_list = list(celltypes.keys())
-
-    compressed = base64.b64decode(b64_str.encode('utf-8'))
-    json_str = zlib.decompress(compressed).decode('utf-8')
-    code_data = json.loads(json_str)
-
-    for pos, state in code_data:
-        x = pos % grid.width
-        y = pos // grid.width
-
-        state["name"] = cell_type_list[state["name"]]
-        effects_data = state.pop("effects")
-
-        loaded_cell = Cell(direction=state["direction"], name=state["name"])
-
-        for key, value in state.items():
-            setattr(loaded_cell, key, value)
-
-        loaded_cell.effects = cells.EffectList(effects_data)
-        grid[x, y] = loaded_cell
+    names = list(celltypes.keys())
+    try:
+        tag, payload = save_string.strip().split(";", 1)
+        if tag != "S2":
+            return False
+        data = json.loads(zlib.decompress(base64.b64decode(payload)))
+        new = [(pos % grid.width, pos // grid.width, cell_from_data(d, names))
+               for pos, d in data if 0 <= pos < grid.width * grid.height]
+    except Exception:
+        return False
+    for x, y, c in new:
+        grid[x, y] = c
+    return True
 
 
 def place_cell(x, y, direction, name, properties=None):
@@ -1138,19 +1285,22 @@ def reset_cells():
     perm_effects = []
     for x, y, cell in grid:
         if cell is not None:
-            if cell.name == "disablestorage":
-                cell = cell.storing_raw
-                grid[x, y] = cell
-                if cell is None: continue
             cell.oldx, cell.oldy = x, y
             cell.olddirection = cell._direction % 4
             cell._direction = cell._direction % 4
             cell.updated = False
             cell.eaten = []
             cell.anim_center = None
+            cell.oldcell = None
             for effect in vars(cell.effects):
                 if effect not in perm_effects:
                     setattr(cell.effects, effect, False)
+
+            if cell.vars.get("ify", None) is not None:
+                cell.vars["ify"].oldx = grid[x, y].oldx
+                cell.vars["ify"].oldy = grid[x, y].oldy
+                grid[x, y] = cell.vars["ify"]
+            cell.vars["ify"] = None
 
 
 def do_camera():
@@ -1170,7 +1320,9 @@ def do_camera():
 
     plrcalc = calc_player_cam()
     if plrcalc is not None and sim_running:
-        camera_x, camera_y = plrcalc
+        k = 1 - math.exp(-10 * dt)
+        camera_x += (plrcalc[0] - camera_x) * k
+        camera_y += (plrcalc[1] - camera_y) * k
 
 
 def tick():
@@ -1188,7 +1340,6 @@ def tick():
 
 
 _light_mask = None
-
 
 def draw_bright_areas():
     global _light_mask
@@ -1254,9 +1405,37 @@ def update_ui_rotation(dt):
             element.angle = angle
 
 
+def cool_bg_thing():
+    global coolbgthings, last_spawn_time_of_coolbgthing
+
+    i = 0
+    while i < len(coolbgthings):
+        name, x, y = coolbgthings[i]
+        x += 1
+        coolbgthings[i][1] = x
+
+        if x >= screen.get_width():
+            coolbgthings.pop(i)
+        else:
+            i += 1
+
+    current_time = pygame.time.get_ticks()
+    if current_time - last_spawn_time_of_coolbgthing >= 500:
+        coolbgthings.append([pygame.transform.scale_by(images[get_random_cell_name()], 2), -32, random.randint(0, screen.get_height())])
+        last_spawn_time_of_coolbgthing = current_time
+
+    for j in coolbgthings:
+        screen.blit(j[0], (j[1], j[2] + math.sin(j[1] * 0.01) * 20))
+
 dt = 0
-amb = pygame.mixer.Sound("SMod Soundtrack.wav")
+amb = audio[random.choice(["Combine Like Terms","Cells And More Cells","Scrambled Cells"])]
 amb.play(loops=-1)
+
+fps = 0
+
+with open(resource_path("credits.txt"), "r", encoding="utf-8") as file:
+    credits_text = file.read()
+
 while running:
     key_buttons = pygame.key.get_pressed()
     if key_buttons[pygame.K_LEFT]:
@@ -1269,13 +1448,12 @@ while running:
         player_input.append("right")
     mouse_pos = pygame.mouse.get_pos()
     mx, my = int((mouse_pos[0] + camera_x) // cell_size), int((mouse_pos[1] + camera_y) // cell_size)
-    lerp_time += dt * (1 / update_delay)
-    if lerp_time >= 1 and menu == "Game":
+    lerp_time = min(lerp_time + dt/update_delay, 1)
+    if lerp_time >= 1 and menu == "Game" and (stepping or sim_running):
         lerp_time = 0
         stepping = False
         reset_cells()
-        if sim_running:
-            tick()
+        tick()
         player_input.clear()
     if menu == "Main Menu":
         lerp_time = 1
@@ -1330,6 +1508,10 @@ while running:
                     AdjMenuUI.click()
                 elif menu == "Main Menu":
                     MainMenuUI.click()
+                elif menu == "Settings":
+                    SettingsMenuUI.click()
+                elif menu == "Credits":
+                    CreditsMenuUI.click()
     mouse_buttons = pygame.mouse.get_pressed()
     if menu == "Game" and adj_menu_name is None:
         if mouse_buttons == (False,) * 3:
@@ -1348,8 +1530,8 @@ while running:
         if mouse_buttons[2] and not GameUI.hover():
             if 0 <= mx < grid.width and 0 <= my < grid.height:
                 if grid[mx, my] is not None and cells.get_tag(grid[mx, my].name,
-                                                              "can_store") and place_type == "store" and grid[
-                    mx, my].storing is not None:
+                                                              "can_store") and place_type == "store" and \
+                        grid[mx, my].storing is not None:
                     grid[mx, my].storing = None
                 elif place_type == "place":
                     delete_cell(mx, my)
@@ -1366,6 +1548,10 @@ while running:
             camera_x += cam_speed
         if key_buttons[pygame.K_a]:
             camera_x -= cam_speed
+        if key_buttons[pygame.K_v]:
+            print(save_code())
+        if key_buttons[pygame.K_l]:
+            load_code(input("code>>"))
 
     screen.fill((0,) * 3)
     if menu == "Game":
@@ -1390,11 +1576,23 @@ while running:
             adj_text_input.update_animation(dt)
         GameUI.update_animation(dt)
     if menu == "Main Menu":
-        screen.fill((30,) * 3)
+        screen.fill((20,) * 3)
+        cool_bg_thing()
         MainMenuUI.draw()
         screen.blit(title_logo, ((SCREEN_WIDTH - title_logo.get_width()) // 2 + 20,
                                  40 + math.sin(pygame.time.get_ticks() / 500) * 10))
         draw_main_infobox()
+    if menu == "Settings":
+        screen.fill((30,) * 3)
+        SettingsMenuUI.draw()
+        draw_settings_infobox()
+    if menu == "Credits":
+        screen.fill((30,) * 3)
+        for i, line in enumerate(credits_text.splitlines()):
+            line_txt = font.render(line, True, (255,) * 3)
+            screen.blit(line_txt, (10, 10+i*font.get_height()))
+        CreditsMenuUI.draw()
+        draw_credits_infobox()
     pygame.display.flip()
     dt = clock.tick(120) / 1000
     fps = 1 / dt

@@ -1,5 +1,5 @@
 import pygame
-
+import utils
 
 class UI:
     def __init__(self, elements=None):
@@ -90,13 +90,13 @@ class ButtonTemplate:
     def x(self):
         sx = self.start_x
         tx = self.target_x
-        return sx + (tx - sx) * self.anim_progress
+        return utils.ease_out(sx, tx, self.anim_progress)
 
     @property
     def y(self):
         sy = self.start_y
         ty = self.target_y
-        return sy + (ty - sy) * self.anim_progress
+        return utils.ease_out(sy, ty, self.anim_progress)
 
     def update_animation(self, dt):
         if self.anim_progress < 1.0:
@@ -377,7 +377,8 @@ class Slider(ButtonTemplate):
         track = self.track_rect()
         mid_y = track.centery
 
-        bar = pygame.Rect(track.left, mid_y - 4, track.width, 8)
+        bar_height = 16
+        bar = pygame.Rect(track.left, mid_y - bar_height/2, track.width, bar_height)
         pygame.draw.rect(screen, self.track_color, bar, border_radius=4)
         fill_w = int(track.width * self.fraction)
         if fill_w > 0:

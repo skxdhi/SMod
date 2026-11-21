@@ -3,6 +3,8 @@ import random
 import sys
 import weakref
 from copy import deepcopy
+
+import utils
 from utils import raise_random_error
 from loader import audio, images
 import pygame
@@ -42,17 +44,27 @@ mover cell on the list
 """
 
 chunks = {
-    "rotator": ["cw 90 rotator", "ccw 90 rotator", "180 rotator", "random 90 rotator", "cw 45 rotator", "ccw 45 rotator", "random 45 rotator", "cw 135 rotator", "ccw 135 rotator", "random 135 rotator",
-                "skidhi 90", "random 22.5 rotator","ana rotator", "kata rotator", "half ana rotator", "half kata rotator", "cw 22.5 rotator", "ccw 22.5 rotator", "adjustable rotator"],
-    "gear": ["cw gear", "ccw gear", "slow cw gear", "slow ccw gear", "fast cw gear", "fast ccw gear", "180 gear"],
+    "rotator": ["cw 90 rotator", "ccw 90 rotator", "180 rotator",
+                "random 90 rotator", "cw 45 rotator", "ccw 45 rotator",
+                "random 45 rotator", "cw 135 rotator", "ccw 135 rotator",
+                "random 135 rotator","skidhi 90", "random 22.5 rotator",
+                "ana rotator", "kata rotator", "half ana rotator",
+                "half kata rotator", "cw 22.5 rotator", "ccw 22.5 rotator",
+                "adjustable rotator"],
+    "gear": ["cw gear", "ccw gear", "slow cw gear", "slow ccw gear",
+             "fast cw gear", "fast ccw gear", "180 gear"],
     "generator": ["cw generator", "ccw generator", "single cell generator"],
     "super generator": ["cw super generator", "ccw super generator"],
-    "mover": ["leaper", "hydra", "skidhi 90", "slow mover", "player mover", "crusher", "purple mover", "bird", "bee"],
+    "mover": ["leaper", "hydra", "skidhi 90", "slow mover", "player mover",
+              "crusher", "purple mover", "bird", "bee", "fast mover"],
     "freezer": ["winter"],
     "thawer": ["summer"],
     "steer": ["player mover"],
     "player": ["anti player", "pull player"],
-    "puller": ["advancer", "leaper puller", "slow puller"],
+    "puller": ["advancer", "leaper puller", "slow puller", "fast puller"],
+    "inertia": ["rotatable inertia"],
+    "logic arrows": ["la source", "la arrow"],
+    "disabler": ["ifier"],
 }
 
 tags = {}
@@ -71,20 +83,25 @@ def get_tag(name, tag, *args, default=None):
 def is_unbreakable(cell, force_type, side):
     return get_tag(cell.name, "unbreakable", force_type, side, cell, default=False)
 
-def collide(cell, force_type, side):
-    return get_tag(cell.name, "collide", force_type, side, cell, default=False)
-
 def gen_as(cell, side):
-    return get_tag(cell.name, "gen_as", side, cell, default=cell.name)
+    return get_tag(cell.name, "gen_as", side, cell, default=cell.copy())
+
+def is_destroyer(cell, other_cell, side):
+    destroyer = get_tag(cell.name, "isdestroyer", side, cell, default=False)
+    if destroyer and not is_unbreakable(other_cell, "destroy", (side+2)%4):
+        return True
+
+def is_collectable(cell, side):
+    return get_tag(cell.name, "collectable", side, cell, default=False)
+
+def is_nonexistent(cell, side):
+    collectable = get_tag(cell.name, "collectable", side, cell, default=False)
+    return collectable
 
 def nudge_into(cell, side):
-    return get_tag(cell.name, "nudge_into", side, cell, default=False)
-
-def coin_cost(cell):
-    return cell.properties.get("Cost", 1)
-
-def total_toll(crossed):
-    return sum(coin_cost(c) for c in crossed)
+    destroyer = get_tag(cell.name, "isdestroyer", side, cell, default=False)
+    collectable = get_tag(cell.name, "collectable", side, cell, default=False)
+    return destroyer or collectable
 
 def unbreakable_to(*force_types):
     return lambda f_t, s, c: f_t in force_types
@@ -108,38 +125,50 @@ add_tag("unbreakable", {
     "electrocutor": unbreakable_to("electrocute"),
 })
 
-add_tag("gen_as", {
-    "ungeneratable": None,
-    "monogeneratable": "ungeneratable",
-})
-
 add_tag("can_store", {
     "storage": True,
     "meta": True,
+    "metageneratable": True,
+    "ifier": True,
 })
 
 add_tag("cannot_disable", {
     "disabler": True,
     "enabler": True,
+    "ifier": True,
 })
 
-add_tag("collide", {
-    "enemy": True,
-    "bulk enemy": True,
+def basic_destroy(side, cell):
+    return True
+
+def forker_destroy(side, cell):
+    return side == 2
+
+def spooner_destroy(side, cell):
+    return side % 2 == 1
+
+add_tag("isdestroyer", {
+    "trash": basic_destroy,
+    "jump trash": basic_destroy,
+    "attack trash": basic_destroy,
+    "bulk trash": basic_destroy,
+    "omega trash": basic_destroy,
+    "physical trash": basic_destroy,
+    "enemy": basic_destroy,
+    "bulk enemy": basic_destroy,
+    "bread": basic_destroy,
+    "dextrophysical trash": basic_destroy,
+    "levophysical trash": basic_destroy,
+    "forker": forker_destroy,
+    "spooner": spooner_destroy,
 })
 
-add_tag("nudge_into", {
-    "trash": True,
-    "jump trash": True,
-    "attack trash": True,
-    "bulk trash": True,
-    "omega trash": True,
-    "enemy": True,
-    "bulk enemy": True,
-    "bread": True,
+add_tag("collectable", {
     "coin": True,
     "anti coin": True,
     "chocolate coin": True,
+    "adjustable coin": True,
+    "walrus coin": True,
 })
 
 def to_vec(direction):
@@ -158,22 +187,10 @@ def to_dir(vector):
     mag = vector.magnitude
     if mag == 0:
         return 0
-
-    ux = round(vector.x / mag)
-    uy = round(vector.y / mag)
-
-    if ux == 1 and uy == 0: return 0
-    if ux == 1 and uy == 1: return 0.5
-    if ux == 0 and uy == 1: return 1
-    if ux == -1 and uy == 1: return 1.5
-    if ux == -1 and uy == 0: return 2
-    if ux == -1 and uy == -1: return 2.5
-    if ux == 0 and uy == -1: return 3
-    if ux == 1 and uy == -1: return 3.5
-
-    return math.atan2(vector.y, vector.x)
+    return (math.atan2(vector.y, vector.x) / math.pi * 2) % 4
 
 def to_side(cell_dir, f_dir):
+    f_dir = round(f_dir * 2) / 2
     return (f_dir % 4 - cell_dir % 4 + 2) % 4
 
 class Vector:
@@ -195,19 +212,26 @@ class Vector:
         return math.sqrt(self.x**2 + self.y**2)
 
     def rotate(self, degrees):
+        vec = self.rotated(degrees)
+        self.x = vec.x
+        self.y = vec.y
+
+    def rotated(self, degrees):
         degrees *= 90
         radians = math.radians(degrees)
         cos_theta = math.cos(radians)
         sin_theta = math.sin(radians)
         new_x = self.x * cos_theta - self.y * sin_theta
         new_y = self.x * sin_theta + self.y * cos_theta
-        self.x = round(new_x)
-        self.y = round(new_y)
+        return Vector(round(new_x), round(new_y))
+
+    def copy(self):
+        return Vector(self.x, self.y)
 
 class EffectList:
     def __init__(self, d=None):
         d = d or {}
-        for var in ["frozen", "thawed", "enabled", "electrocuted", "coppered"]:
+        for var in ["frozen", "thawed", "enabled", "electrocuted", "coppered", "disabled"]:
             v = d.get(var, False)
             setattr(self, var, list(v) if isinstance(v, (list, tuple)) else v)
 
@@ -215,11 +239,14 @@ class EffectList:
         return EffectList(vars(self))
 
 class Cell:
-    def __init__(self, direction, name, oldx=None, oldy=None, olddirection=None, eatencells=None, updated=False, effects=None, noupdate=False, eaten=None, v=None, anim_center=None, properties=None):
+    def __init__(self, direction, name, oldx=None, oldy=None, olddirection=None, eatencells=None, updated=False, effects=None, noupdate=False, eaten=None, v=None, anim_center=None, properties=None, oldcell=None, x=None, y=None):
         self._direction = direction
         self.name = name
+        self.x = x
+        self.y = y
         self.oldx = oldx
         self.oldy = oldy
+        self.oldcell = oldcell
         self.olddirection = olddirection
         self.eatencells = [] if eatencells is None else eatencells
         self.updated = updated
@@ -242,14 +269,19 @@ class Cell:
 
     @direction.setter
     def direction(self, value):
+        old = self._direction
         self._direction = value
+        if self.storing_raw is not None:
+            self.storing_raw.direction += value - old
 
     @property
     def storing(self):
         if self.storing_raw is None or self.storing_raw.name == "void":
             return None
         if self.storing_raw.name == "self":
-            return self.copy()
+            c = self.copy()
+            c.direction += self.storing_raw.direction
+            return c
         if self.storing_raw.name == "meta":
             c = self.storing_raw.copy()
             if c.properties["Index"] > 1:
@@ -278,10 +310,100 @@ class Cell:
             effects=self.effects.copy(),
             noupdate=self.noupdate,
             eaten=list(self.eaten),
-            v=dict(self.vars),
+            v=deepcopy(self.vars),
             properties=dict(self.properties)
         )
 
+    def apply_changes(self, base, modified):
+        simple = (int, float, str, bool, list, tuple, type(None))
+        if modified._direction != base._direction:
+            self.direction = self._direction + modified._direction - base._direction
+        if modified.name != base.name:
+            self.name = modified.name
+        for target, old, new in (
+            (self.vars, base.vars, modified.vars),
+            (self.properties, base.properties, modified.properties),
+            (vars(self.effects), vars(base.effects), vars(modified.effects)),
+        ):
+            for key, value in new.items():
+                before = old.get(key)
+                if not isinstance(value, simple) or value == before:
+                    continue
+                if isinstance(value, (int, float)) and not isinstance(value, bool) and isinstance(before, (int, float)):
+                    target[key] = target.get(key, 0) + value - before
+                else:
+                    target[key] = value
+
+def x_generatable(side, cell):
+    if cell.properties["X"] > 0:
+        copy = cell.copy()
+        copy.properties["X"] -= 1
+        return copy
+    return None
+
+def meta_generatable(side, cell):
+    if cell.properties["Meta"] > 0:
+        copy = cell.copy()
+        copy.properties["Meta"] -= 1
+        if copy.properties["Meta"] == 0:
+            copy = cell.storing.copy() if cell.storing_raw is not None else False
+        return copy
+    return None
+
+def generate_as(name):
+    def wrapper(side, cell):
+        copy = cell.copy()
+        copy.name = name
+        return copy
+    return wrapper
+
+add_tag("gen_as", {
+    "ungeneratable": None,
+    "monogeneratable": generate_as("ungeneratable"),
+    "x generatable": x_generatable,
+    "metageneratable": meta_generatable,
+    "spirit": False,
+    "ghost": False,
+})
+
+def make_subtick(chunk,condition=None,directional=False,postqueue=None,simul=False,reversed=False):
+    if not condition:
+        condition = lambda x,y,cell,direction: True
+    out = {"chunk":chunk,"directional":directional,"condition":condition,"simul":simul,"reversed":reversed}
+    if postqueue is not None:
+        out["postqueue"] = postqueue
+    return out
+
+subticks = [
+    make_subtick("thawer"),
+    make_subtick("freezer"),
+    make_subtick("enabler"),
+    make_subtick("disabler"),
+    make_subtick("electrocutor"),
+    make_subtick("copper"),
+    make_subtick("logic arrows", simul=True),
+    make_subtick("converter",directional=True),
+    make_subtick("mirror",directional=True),
+    make_subtick("intaker",directional=True),
+    make_subtick("super generator",directional=True),
+    make_subtick("generator",directional=True),
+    make_subtick("gear", postqueue="postrotate"),
+    make_subtick("rotator", postqueue="postrotate"),
+    make_subtick("redirector"),
+    make_subtick("inertia"),
+    make_subtick("impulsor"),
+    make_subtick("repulsor"),
+    make_subtick("super puller", directional=True),
+    make_subtick("puller",directional=True),
+    make_subtick("steer"),
+    make_subtick("super mover", directional=True, reversed=True),
+    make_subtick("mover",directional=True,reversed=True),
+    make_subtick("nudger",directional=True),
+    make_subtick("super coin extractor",directional=True),
+    make_subtick("coin extractor",directional=True),
+    make_subtick("player",directional=True),
+    make_subtick("spooner",directional=True),
+]
 
 class Grid:
     def __init__(self, width, height):
@@ -304,6 +426,8 @@ class Grid:
         self.grid[x][y] = value
         if value is not None:
             self.positions[value] = (x, y)
+            value.x = x
+            value.y = y
 
     def locate(self, cell, x, y):
         if self[x, y] is cell:
@@ -329,45 +453,80 @@ class Grid:
                 if cell is not None:
                     active_cells.append((x, y))
 
-        self.subtick("thawer", active_cells)
-        self.subtick("freezer", active_cells)
-        self.subtick("enabler", active_cells)
-        self.subtick("disabler", active_cells)
-        self.subtick("electrocutor", active_cells)
-        self.subtick("copper", active_cells)
-        self.subtick("inertia", active_cells)
-        self.directional_subtick("mirror", active_cells)
-        self.directional_subtick("intaker", active_cells)
-        self.directional_subtick("super generator", active_cells)
-        self.directional_subtick("generator", active_cells)
-        self.subtick("gear", active_cells)
-        run_queue("postrotate")
-        self.subtick("rotator", active_cells)
-        run_queue("postrotate")
-        self.subtick("redirector", active_cells)
-        self.subtick("impulsor", active_cells)
-        self.subtick("repulsor", active_cells)
-        self.directional_subtick("puller", active_cells)
-        self.subtick("steer", active_cells)
-        self.directional_subtick("mover", active_cells)
-        self.directional_subtick("nudger", active_cells)
-        self.directional_subtick("player", active_cells)
+        for subtick in subticks:
+            if subtick["directional"]:
+                self.directional_subtick(subtick["chunk"], subtick["condition"], active_cells, reversed=subtick["reversed"])
+            elif subtick["simul"]:
+                self.simul_subtick(subtick["chunk"], subtick["condition"], active_cells)
+            else:
+                self.subtick(subtick["chunk"], subtick["condition"], active_cells, reversed=subtick["reversed"])
+            if "postqueue" in subtick:
+                run_queue(subtick["postqueue"])
 
-    def directional_subtick(self, chunkid, active_cells):
-        for i in [0, 0.5, 2, 2.5, 1, 1.5, 3, 3.5]:
-            self.subtick(chunkid, active_cells, i)
+        for x, y, cell in self:
+            if cell is None: continue
+            if cell.name == "disablestorage":
+                c = cell.storing_raw
+                if c is None: continue
+                c.direction = cell.direction
+                self[x, y] = c
 
-    def subtick(self, chunkid, active_cells, direction=None):
+    def directional_subtick(self, chunkid, condition, active_cells, reversed=False):
+        l = [0, 0.5, 2, 2.5, 1, 1.5, 3, 3.5]
+        for i in l:
+            self.subtick(chunkid, condition, active_cells, i, reversed=reversed)
+
+    def simul_subtick(self, chunkid, condition, active_cells):
+        name = "Do" + chunkid.title().replace(" ", "")
+        valid_names = {chunkid}.union(chunks.get(chunkid, []))
+
+        runners = []
+        for x in range(self.width):
+            col = self.grid[x]
+            for y in range(self.height):
+                cell = col[y]
+                if cell is None or cell.name not in valid_names or cell.updated or cell.effects.frozen:
+                    continue
+                if not condition(x, y, cell, None): continue
+                runners.append((x, y, cell))
+
+        changes = {}
+        done = []
+        for x, y, cell in runners:
+            view = _Scratch(self)
+            me = view[x, y]
+            view.run_cell(getattr(view, name), x, y, me)
+            for ch in list(queue):
+                run_queue(ch)
+            for pos, new in view.layer.items():
+                old = self.grid[pos[0]][pos[1]]
+                if (new is None) != (old is None) or (new is not None and _sig(new) != _sig(old)):
+                    changes[pos] = new
+            self.eaten.extend(view.eaten)
+            done.append((cell, me))
+
+        for (x, y), new in changes.items():
+            self[x, y] = new
+        for cell, me in done:
+            holder = me if self[me.x, me.y] is me else cell
+            holder.updated, holder.noupdate = me.updated, me.noupdate
+
+    def subtick(self, chunkid, condition, active_cells, direction=None, reversed=None):
         func = getattr(self, "Do" + chunkid.title().replace(" ", ""))
         valid_names = {chunkid}.union(chunks.get(chunkid, []))
 
         if direction is None:
-            for x in range(self.width):
+            xs = range(self.width)
+            ys = range(self.height)
+            if reversed:
+                xs, ys = xs[::-1], ys[::-1]
+            for x in xs:
                 col = self.grid[x]
-                for y in range(self.height):
+                for y in ys:
                     cell = col[y]
                     if cell is None or cell.name not in valid_names or cell.updated or cell.effects.frozen:
                         continue
+                    if not condition(x, y, cell, None): continue
                     self.run_cell(func, x, y, cell)
             return
 
@@ -381,11 +540,15 @@ class Grid:
         else:
             ys = range(self.height)
 
+        if reversed:
+            xs, ys = xs[::-1], ys[::-1]
+
         for x in xs:
             for y in ys:
                 cell = self.grid[x][y]
                 if cell is None or cell.name not in valid_names or cell.direction != direction or cell.updated or cell.effects.frozen:
                     continue
+                if not condition(x, y, cell, direction): continue
                 self.run_cell(func, x, y, cell)
 
     def get_tick_count(self, cell):
@@ -396,7 +559,7 @@ class Grid:
     def run_cell(self, func, x, y, cell):
         for i in range(self.get_tick_count(cell)):
             if i > 0:
-                pos = self.locate(cell, x, y)
+                pos = (cell.x, cell.y)
                 if pos is None:
                     break
                 x, y = pos
@@ -405,6 +568,21 @@ class Grid:
             cell.updated = True
         else:
             cell.noupdate = False
+
+    def get_coin_price(self, cell, target=None):
+        if cell.name == "coin":
+            return 1
+        elif cell.name == "anti coin":
+            return -1
+        elif cell.name == "chocolate coin":
+            return 0
+        elif cell.name == "adjustable coin":
+            return cell.properties["Value"]
+        elif cell.name == "walrus coin":
+            if target is None:
+                return 0
+            return cell.properties["Value"] - target.vars["coins"]
+        return None
 
     def get_neighbors(self, x, y, dist=1, flags=None):
         flags = flags or {}
@@ -430,6 +608,12 @@ class Grid:
             v = to_vec(i)*dist
             l[i] = (x+v.x, y+v.y, self[x+v.x, y+v.y])
         return l
+
+    def la_power_cell(self, x, y, side=None):
+        if self[x, y] is not None:
+            if side is not None and is_unbreakable(self[x, y], "la power", side): return
+            if "la " not in self[x, y].name: return
+            self[x, y].vars["la_powered"] = True
 
     def electrocute_cell(self, x, y, amount, side=None):
         if self[x, y] is not None:
@@ -467,6 +651,9 @@ class Grid:
             if self[x, y].name == "helix":
                 queue_task("postrotate", lambda: self.DoHelix(x, y, amt))
                 return
+            if self[x, y].name == "rotatable inertia":
+                if self[x, y].vars.get("momentum"):
+                    self[x, y].vars["momentum"]["direction"].rotate(self.take_srot(self[x, y], amt))
             self.rotate_cell_raw(x, y, amt, side)
 
     def w_rotate_cell(self, x, y, amt, side=None):
@@ -509,6 +696,7 @@ class Grid:
         if get_tag(cell.name, "cannot_disable"): return
         oldx = cell.oldx if cell.oldx is not None else x
         oldy = cell.oldy if cell.oldy is not None else y
+        cell.effects.disabled = True
         new_cell = Cell(
             cell.direction,
             "disablestorage",
@@ -521,14 +709,37 @@ class Grid:
         new_cell.storing = cell.copy()
         self[x, y] = new_cell
 
+    def ify_cell(self, x, y, ify):
+        cell = self[x, y]
+        if cell is None: return
+        if cell.vars.get("ify", None) is not None: return
+        if cell.effects.enabled: return
+        if get_tag(cell.name, "cannot_disable"): return
+        if ify is None: return
+
+        oldx = cell.oldx if cell.oldx is not None else x
+        oldy = cell.oldy if cell.oldy is not None else y
+
+        ify = ify.copy()
+        ify.oldx = oldx
+        ify.oldy = oldy
+        ify.vars["ify"] = cell
+
+        self[x, y] = ify
+
     def enable_cell(self, x, y):
         cell = self[x, y]
         if cell is None: return
         if cell.name == "disablestorage":
             self[x, y] = cell.storing_raw
+        if cell.vars.get("ify", None) is not None:
+            cell.vars["ify"].oldx = self[x, y].oldx
+            cell.vars["ify"].oldy = self[x, y].oldy
+            self[x, y] = cell.vars["ify"]
         self[x, y].effects.enabled = True
 
-    def eat_cell(self, x, y, tx, ty, force_animation=False):
+    def eat_cell(self, x, y, tx, ty):
+        if self[x, y] is None: return
         if (x, y) == (tx, ty):
             self.eaten.append((self[x, y].copy(), (tx, ty)))
             return
@@ -537,21 +748,29 @@ class Grid:
             return
         self.eaten.append((self[x, y].copy(), (tx, ty)))
 
-    def direct_step_forward(self, x, y, direction=None):
+    def direct_step_forward(self, x, y, direction=None, vars=None):
+        vars = vars if vars is not None else {}
         if direction is None:
             direction = to_vec(self[x, y].direction)
 
         f = deepcopy(direction)
         nx, ny = x + f.x, y + f.y
-        return nx, ny, f, self[nx, ny]
+        vars["end"] = self[nx, ny]
+        return nx, ny, f, vars
 
-    def step_forward(self, x, y, direction, traveler=None, passed=None):
+    def step_forward(self, x, y, direction, vars=None):
+        vars = vars if vars is not None else {}
+        vars["base"] = vars["lastcell"].copy() if vars.get("lastcell") is not None else None
+        vars["lastcell"] = vars["lastcell"].copy() if vars.get("lastcell") is not None else None
+        vars["end"] = None
+        vars["end_raw"] = None
+        vars["blocked"] = False
         end_x, end_y = x, y
         start_x, start_y = x, y
         loops = 0
-        crossed = []
-        toll = 0
         while True:
+            if vars["blocked"]:
+                break
             cdir = to_dir(direction)
             end_x += direction.x
             end_y += direction.y
@@ -590,26 +809,23 @@ class Grid:
                     if side == 2: pass
                     else: break
                 elif cell.name == "coin diverger":
-                    cost = coin_cost(cell)
-                    if side % 1 != 0: break
-                    if traveler is not None and toll + cost > traveler.vars.get("coins", 0): break
-                    toll += cost
-                    crossed.append(cell)
+                    if vars["lastcell"]:
+                        if vars["lastcell"].vars["coins"] >= cell.properties["Cost"]: vars["lastcell"].vars["coins"] -= cell.properties["Cost"]
+                        else: vars["blocked"] = True
                 else:
                     break
-        if passed is not None:
-            passed.extend(crossed)
         if cell is not None:
             to_copy = cell.copy()
             to_copy.direction += to_dir(direction) - cell.direction
-            return end_x, end_y, direction, to_copy
-        return end_x, end_y, direction, None
+            vars["end"] = to_copy
+            vars["end_raw"] = cell
+        return end_x, end_y, direction, vars
 
-    def step_backward(self, x, y, direction, passed=None):
-        result = self.step_forward(x, y, -direction, passed=passed)
+    def step_backward(self, x, y, direction, vars=None):
+        result = self.step_forward(x, y, -direction, vars=vars)
         result = [i for i in result]
         result[2] = -result[2]
-        result[3] = None
+        result[3]["end"] = None
 
         if self[*result[0:2]] is not None:
             cell = self[*result[0:2]]
@@ -619,7 +835,7 @@ class Grid:
             new_dir = to_dir(direction)
 
             to_copy.direction = (to_copy.direction - new_dir + old_dir + 2)
-            result[3] = to_copy
+            result[3]["end"] = to_copy
 
         return result
 
@@ -654,11 +870,33 @@ class Grid:
         flags = flags if flags is not None else {}
         flags["nudge"] = True
         if self[x, y] is not None:
-            nx, ny, ndir, _ = self.step_forward(x, y, Vector(direction.x, direction.y), traveler=self[x, y])
+            nx, ny, ndir, _ = self.step_forward(x, y, Vector(direction.x, direction.y), vars={"lastcell": self[x, y]})
             front = self[nx, ny]
             if front is not None and not nudge_into(front, to_side(front.direction, to_dir(ndir))):
                 return False
         return self.push_cell(x, y, Vector(direction.x, direction.y), flags)
+
+    def nudge_cell_to(self, x, y, tx, ty, flags=None, direction=None):
+        flags = flags if flags is not None else {}
+        flags["nudge"] = True
+        flags["nudge_to"] = True
+        flags["force"] = flags.get("force", 1)
+        flags["lastpos"] = (x, y)
+        cell = self[x, y]
+        if cell is None: return False
+        front = self[tx, ty]
+        if direction is None:
+            direction = Vector(tx - x, ty - y)
+        if front is not None:
+            side = to_side(front.direction, to_dir(direction))
+            if not nudge_into(front, side):
+                return False
+        _, _, _, _, success = self.handle_push(tx, ty, direction, flags)
+        if self[*flags["lastpos"]] is not None and success:
+            self[tx, ty] = self[x, y]
+            self[x, y] = None
+        run_queue("postpush")
+        return True
 
     def push_cell(self, x, y, direction, flags=None):
         orig_x, orig_y = x, y
@@ -669,7 +907,7 @@ class Grid:
         flags["first"] = True
 
         to_push = []
-        pending_tolls = []
+        pending_changes = []
         success = True
         lastx, lasty = (None,) * 2
         flags["loops"] = -1
@@ -693,7 +931,7 @@ class Grid:
             cell = self[sim_cx, sim_cy]
             if cell is not None:
                 path_coords.add((sim_cx, sim_cy))
-                nx, ny, sim_dir, _ = self.step_forward(sim_cx, sim_cy, sim_dir, traveler=cell)
+                nx, ny, sim_dir, _ = self.step_forward(sim_cx, sim_cy, sim_dir)
                 sim_cx, sim_cy = nx, ny
             else:
                 break
@@ -720,8 +958,8 @@ class Grid:
             else:
                 break
             to_push.append((oldx, oldy, cx, cy))
-            if flags.get("toll"):
-                pending_tolls.append((cell, flags["toll"]))
+            if flags.get("changes") is not None:
+                pending_changes.append((cell, *flags["changes"]))
             lastx, lasty = oldx, oldy
             flags["first"] = False
 
@@ -738,8 +976,8 @@ class Grid:
             return False
 
         if not flags.get("test", False):
-            for c, amount in pending_tolls:
-                c.vars["coins"] = c.vars.get("coins", 0) - amount
+            for c, base, modified in pending_changes:
+                c.apply_changes(base, modified)
             for px, py, pcx, pcy in reversed(to_push):
                 if self[px, py] is None: continue
                 self[pcx, pcy] = self[px, py]
@@ -756,14 +994,16 @@ class Grid:
     def handle_push(self, x, y, direction, flags):
         cell = self[x, y]
         if cell is None:
-            return x, y, direction, flags, False
+            return x, y, direction, flags, True
 
-        old_direction = Vector(direction.x, direction.y)
-        crossed = []
-        nx, ny, direction, _ = self.step_forward(x, y, direction, traveler=cell, passed=crossed)
-        flags["toll"] = total_toll(crossed)
+        old_direction = direction.copy()
+        step_vars = {"lastcell": None if flags.get("nudge_to") else cell}
+        nx, ny, direction, _ = self.step_forward(x, y, direction, vars=step_vars)
         ddir = to_dir(direction)
         side = to_side(cell.direction, ddir)
+        if step_vars["blocked"] and not nudge_into(cell, side):
+            return x, y, direction, flags, False
+        flags["changes"] = (step_vars["base"], step_vars["lastcell"]) if step_vars["lastcell"] is not None else None
         front_cell = self[nx, ny]
 
         lastpos = flags["lastpos"]
@@ -803,6 +1043,8 @@ class Grid:
             raise_random_error()
         elif cell.name == "weight":
             flags["force"] -= 1
+        elif cell.name == "a weight":
+            flags["force"] -= "A" # wait, you thought i was kidding? (or should i say, WEIGHT)
         elif cell.name == "adjustable weight":
             flags["force"] -= cell.properties["Numerator"]/cell.properties["Denominator"]
         elif cell.name == "anti weight":
@@ -822,16 +1064,23 @@ class Grid:
         elif cell.name == "lead":
             if math.isclose(side % 1, 0, abs_tol=1e-9):
                 flags["force"] = 0
-        elif cell.name == "inertia":
+        elif cell.name == "resistance":
+            if flags["force"] != 1:
+                flags["force"] = 0
+        elif cell.name == "conductance":
+            if flags["force"] == 1:
+                flags["force"] = 0
+        elif cell.name in ["inertia", "rotatable inertia"]:
             cell.vars["momentum"] = {"direction": direction, "force": flags["force"]}
 
-        if cell.name in ("coin", "anti coin", "chocolate coin"):
-            amount = (1 if cell.name == "coin" else (-1 if cell.name == "anti coin" else 0))
+        if self.get_coin_price(cell) is not None:
             if lastpos is not None and self[*lastpos] is not None:
+                amount = self.get_coin_price(cell, self[*lastpos])
                 self[*lastpos].vars["coins"] += amount
                 self[x, y] = None
                 flags["break"] = True
             elif flags["replacecell"] is not None:
+                amount = self.get_coin_price(cell, flags["replacecell"])
                 flags["replacecell"].vars["coins"] += amount
                 self[x, y] = None
                 flags["break"] = True
@@ -869,7 +1118,6 @@ class Grid:
             else:
                 flags["break"] = True
             play_sound("destroy")
-
         elif cell.name == "squish trash":
             v = deepcopy(flags)
             v["test"] = True
@@ -882,8 +1130,23 @@ class Grid:
                     flags["replacecell"] = None
                 flags["break"] = True
                 play_sound("destroy")
+        elif cell.name in ["physical trash", "dextrophysical trash", "levophysical trash"]:
+            rotation = {
+                "dextrophysical trash": 1,
+                "levophysical trash": -1,
+            }.get(cell.name, 0)
+            if lastpos is not None:
+                self.eat_cell(*lastpos, x, y)
+                self[*lastpos] = None
+            else:
+                flags["replacecell"] = None
+            flags["break"] = True
+            play_sound("destroy")
 
-        elif cell.name == "lichen":
+            nx, ny, ndir, _ = self.step_forward(x, y, direction.rotated(-rotation))
+            queue_task("postpush", lambda: self.push_cell(nx, ny, ndir))
+
+        if cell.name == "lichen" and not flags.get("test", False):
             self.eat_cell(x, y, x, y)
             self[x, y] = None
             flags["break"] = True
@@ -918,7 +1181,7 @@ class Grid:
                 self[x, y] = downcopy
                 self.push_cell(x, y, to_vec(down_dir), {"replacecell": None, "ignore_first": True})
 
-        elif cell.name in ["enemy", "bulk enemy", "bread"]:
+        if cell.name in ["enemy", "bulk enemy", "bread"]:
             can_collide = True
             if cell.name == "bread":
                 if cell.properties["Numerator"]/cell.properties["Denominator"] > flags["force"]:
@@ -937,7 +1200,6 @@ class Grid:
                 else:
                     flags["break"] = True
                 play_sound("destroy")
-
         elif cell.name == "squish enemy":
             v = deepcopy(flags)
             v["test"] = True
@@ -953,18 +1215,61 @@ class Grid:
                 flags["break"] = True
                 play_sound("destroy")
 
+        elif cell.name == "forker":
+            if side == 2:
+                last_cell = self[*lastpos] if lastpos is not None else flags["replacecell"]
+                if last_cell is not None:
+                    up = last_cell.copy()
+                    up.direction -= 1
+                    down = last_cell.copy()
+                    down.direction += 1
+                    up.updated = True
+                    down.updated = True
+
+                    if lastpos is not None:
+                        self[*lastpos] = None
+                    else:
+                        flags["replacecell"] = None
+                    flags["break"] = True
+
+                    ux, uy, udir, _ = self.step_forward(x, y, direction.rotated(-1))
+                    queue_task("postpush", lambda: self.push_cell(ux, uy, udir, {"replacecell": up}))
+                    bx, by, bdir, _ = self.step_forward(x, y, direction.rotated(1))
+                    queue_task("postpush", lambda: self.push_cell(bx, by, bdir, {"replacecell": down}))
+
+        elif cell.name == "spooner":
+            if side in [1, 3]:
+                last_cell = (self[*lastpos] if lastpos is not None else flags["replacecell"]).copy()
+                if last_cell is not None:
+                    last_cell.direction += -1 if side == 3 else (1 if side == 1 else 0)
+                if cell.vars.get("output", None) is None: cell.vars["output"] = last_cell
+
+                if lastpos is not None:
+                    self[*lastpos] = None
+                else:
+                    flags["replacecell"] = None
+                flags["break"] = True
+
         if front_cell is not None:
             if front_cell.name in ["mover", "leaper", "hydra", "skidhi 90", "player mover", "advancer", "crusher",
-                                   "purple mover"] and not front_cell.effects.frozen:
+                                   "purple mover", "fast mover"] and not front_cell.effects.frozen:
                 if front_cell.direction == ddir:
                     flags["force"] += 1
+                    front_cell.updated = True
                 elif front_cell.direction == (ddir + 2) % 4:
                     flags["force"] -= 1
             if front_cell.name == "slow mover" and not front_cell.effects.frozen and self.ticks % 2 == 0:
                 if front_cell.direction == ddir:
                     flags["force"] += 1
+                    front_cell.updated = True
                 elif front_cell.direction == (ddir + 2) % 4:
                     flags["force"] -= 1
+            if front_cell.name == "super mover" and not front_cell.effects.frozen:
+                if front_cell.direction == ddir:
+                    flags["force"] += math.inf
+                    front_cell.updated = True
+                elif front_cell.direction == (ddir + 2) % 4:
+                    flags["force"] -= math.inf
 
         if flags["force"] <= 0:
             success = False
@@ -983,7 +1288,7 @@ class Grid:
         flags["replacecell"] = flags.get("replacecell", None)
         flags["force"] = flags.get("force", 1)
         flags["first"] = True
-        flags["tolls"] = []
+        flags["changes"] = []
         direction = Vector(direction.x, direction.y)
 
         to_pull = []
@@ -1020,12 +1325,12 @@ class Grid:
             return False
 
         if not flags.get("test", False):
-            for c, amount in flags["tolls"]:
-                c.vars["coins"] = c.vars.get("coins", 0) - amount
+            for c, base, modified in flags["changes"]:
+                c.apply_changes(base, modified)
             for px, py, pcx, pcy in to_pull:
-                if self[px, py] is None: continue
-                self[pcx, pcy] = self[px, py]
-                self[px, py] = None
+                if not self.nudge_cell_to(px, py, pcx, pcy):
+                    if (px, py) == (x, y): return False
+                    break
 
         run_queue("postpull")
 
@@ -1036,52 +1341,37 @@ class Grid:
         if cell is None:
             return x, y, direction, flags, False
 
-        front_crossed = []
-        back_crossed = []
-        nx, ny, front_direction, front_cell = self.step_forward(x, y, Vector(direction.x, direction.y), traveler=cell, passed=front_crossed)
-        bx, by, direction, _ = self.step_backward(x, y, Vector(direction.x, direction.y), passed=back_crossed)
-        back_cell = self[bx, by]
-        side = to_side(cell.direction, to_dir(direction))
-
+        pull_dir = direction.copy()
         lastpos = flags["lastpos"]
         if lastpos == (None, None):
             lastpos = None
 
+        side = to_side(cell.direction, to_dir(pull_dir))
+        front_vars = {"lastcell": cell if lastpos is None else None}
+        fx, fy, fdir, _ = self.step_forward(x, y, pull_dir.copy(), vars=front_vars)
+        if front_vars["blocked"] and not nudge_into(cell, side):
+            return x, y, direction, flags, False
+        bx, by, bdir, _ = self.step_backward(x, y, pull_dir.copy())
+        back_cell = self[bx, by]
+
+        ddir = to_dir(fdir)
+
         success = True
         flags["end"] = False
 
-        tolls = flags.setdefault("tolls", [])
-        if lastpos is None and front_crossed:
-            tolls.append((cell, total_toll(front_crossed)))
-        if back_cell is not None and back_crossed:
-            back_toll = total_toll(back_crossed)
-            if back_toll > back_cell.vars.get("coins", 0):
+        changes = flags.setdefault("changes", [])
+        if front_vars["lastcell"] is not None:
+            changes.append((cell, front_vars["base"], front_vars["lastcell"]))
+        if back_cell is not None:
+            back_vars = {"lastcell": back_cell}
+            ex, ey, _, _ = self.step_forward(bx, by, bdir.copy(), vars=back_vars)
+            if (ex, ey) != (x, y):
                 flags["break"] = True
             else:
-                tolls.append((back_cell, back_toll))
+                changes.append((back_cell, back_vars["base"], back_vars["lastcell"]))
 
-        if lastpos is None:
-            flags["frontpos"] = (nx, ny)
-            flags["frontdir"] = front_direction
-            front_cell = self[nx, ny]
-            if not (0 <= nx < self.width and 0 <= ny < self.height):
-                success = False
-            elif front_cell is not None:
-                if front_cell.name not in []:
-                    success = False
-                elif not flags.get("test", False):
-                    if front_cell.name == "enemy":
-                        self.eat_cell(nx, ny, nx, ny)
-                        self[nx, ny] = None
-                    self.eat_cell(x, y, nx, ny)
-                    self[x, y] = None
-                    play_sound("destroy")
-                    if front_cell.name == "jump trash":
-                        queue_task("postpull", lambda: self.push_cell(nx, ny, front_direction, {"ignore_first": True}))
-                    if front_cell.name == "attack trash":
-                        queue_task("postpull", lambda: self.push_cell(nx, ny, -front_direction, {"ignore_first": True}))
-                    if "bulk" in front_cell.name:
-                        success = False
+        flags["frontpos"] = (fx, fy)
+        flags["frontdir"] = fdir
 
         if is_unbreakable(cell, "pull", side):
             flags["force"] = 0
@@ -1106,6 +1396,8 @@ class Grid:
 
         elif cell.name == "weight":
             flags["force"] -= 1
+        elif cell.name == "a weight":
+            flags["force"] -= "A" # wait, you thought i was kidding? (or should i say, WEIGHT)
         elif cell.name == "adjustable weight":
             flags["force"] -= cell.properties["Numerator"] / cell.properties["Denominator"]
         elif cell.name == "anti weight":
@@ -1125,17 +1417,33 @@ class Grid:
         elif cell.name == "lead":
             if math.isclose(side % 1, 0, abs_tol=1e-9):
                 flags["force"] = 0
+        elif cell.name == "resistance":
+            if flags["force"] != 1:
+                flags["force"] = 0
+        elif cell.name == "conductance":
+            if flags["force"] == 1:
+                flags["force"] = 0
 
         if back_cell is not None:
-            if back_cell.name in ["puller", "advancer"] and not cell.effects.frozen:
-                if back_cell.direction == cell.direction:
+            if back_cell.name in ["puller", "advancer", "fast puller", "leaper puller"] and not cell.effects.frozen:
+                if back_cell.direction == ddir:
                     flags["force"] += 1
-                if back_cell.direction == (cell.direction+2)%4:
+                if back_cell.direction == (ddir + 2) % 4:
+                    flags["force"] -= 1
+            if back_cell.name == "slow puller" and not back_cell.effects.frozen and self.ticks % 2 == 0:
+                if back_cell.direction == ddir:
+                    flags["force"] += 1
+                    back_cell.updated = True
+                elif back_cell.direction == (ddir + 2) % 4:
                     flags["force"] -= 1
 
-        if flags["force"] <= 0: success = False
+        if flags["force"] <= 0:
+            success = False
 
-        return bx, by, direction, flags, success
+        if success and not flags.get("break", False) and self[x, y] is not None:
+            self[x, y].direction = self[x, y].direction + to_dir(fdir) - to_dir(pull_dir)
+
+        return bx, by, bdir, flags, success
 
     def swap_cells(self, x1, y1, x2, y2, side1, side2):
         a, b = self[x1, y1], self[x2, y2]
@@ -1150,6 +1458,13 @@ class Grid:
         self[x2, y2] = a_copy
         return True
 
+    def DoSpooner(self, x, y, cell):
+        if (output:=cell.vars.get("output", None)) is not None:
+            nx, ny, ndir, _ = self.step_forward(x, y, to_vec(cell.direction))
+            output.direction += to_dir(ndir) - cell.direction
+            self.push_cell(nx, ny, ndir, {"replacecell": output})
+            cell.vars["output"] = None
+
     def DoMirror(self, x, y, cell):
         if cell.name == "mirror":
             fx, fy, _, _ = self.direct_step_forward(x, y, to_vec(cell.direction))
@@ -1161,11 +1476,10 @@ class Grid:
             self.swap_cells(fx, fy, bx, by, side1, side2)
 
     def DoInertia(self, x, y, cell):
-        if cell.name == "inertia":
-            if (momentum:=cell.vars.get("momentum", None)) is not None:
-                ok = self.push_cell(x, y, momentum["direction"], {"force": momentum["force"]})
-                if not ok:
-                    cell.vars["momentum"] = None
+        if (momentum:=cell.vars.get("momentum", None)) is not None:
+            ok = self.push_cell(x, y, momentum["direction"], {"force": momentum["force"]})
+            if not ok:
+                cell.vars["momentum"] = None
 
     def DoNudger(self, x, y, cell):
         if cell.name == "nudger":
@@ -1179,6 +1493,22 @@ class Grid:
         elif cell.name == "slow mover":
             if self.ticks % 2 == 0:
                 self.push_cell(x, y, to_vec(cell.direction))
+        elif cell.name == "fast mover":
+            self.push_cell(x, y, to_vec(cell.direction))
+            if self[cell.x, cell.y] is cell:
+                self.push_cell(cell.x, cell.y, to_vec(cell.direction))
+        elif cell.name == "super mover":
+            success = True
+            loops = 0
+            sx, sy = x, y
+            while success:
+                if (cell.x, cell.y) == (sx, sy):
+                    loops += 1
+                if loops >= 5:
+                    break
+                success = self.push_cell(cell.x, cell.y, to_vec(cell.direction), {"force": math.inf})
+                if self[cell.x, cell.y] is not cell:
+                    break
         elif cell.name == "bird":
             if cell.direction % 2 != 0:
                 ok = self.push_cell(x, y, to_vec(cell.direction))
@@ -1298,13 +1628,29 @@ class Grid:
     def DoPuller(self, x, y, cell):
         if cell.name == "puller":
             self.pull_cell(x, y, to_vec(cell.direction))
-        if cell.name == "advancer":
+        elif cell.name == "advancer":
             self.advance_cell(x, y, to_vec(cell.direction))
-        if cell.name == "leaper puller":
+        elif cell.name == "leaper puller":
             self.pull_cell(x, y, to_vec(cell.direction)*2)
-        if cell.name == "slow puller":
+        elif cell.name == "slow puller":
             if self.ticks % 2 == 0:
                 self.pull_cell(x, y, to_vec(cell.direction))
+        elif cell.name == "fast puller":
+            self.pull_cell(x, y, to_vec(cell.direction))
+            if self[cell.x, cell.y] is cell:
+                self.pull_cell(cell.x, cell.y, to_vec(cell.direction))
+        elif cell.name == "super puller":
+            success = True
+            loops = 0
+            sx, sy = x, y
+            while success:
+                if (cell.x, cell.y) == (sx, sy):
+                    loops += 1
+                if loops >= 5:
+                    break
+                success = self.pull_cell(cell.x, cell.y, to_vec(cell.direction), {"force": math.inf})
+                if self[cell.x, cell.y] is not cell:
+                    break
 
     def DoRotator(self, x, y, cell):
         if cell.name == "adjustable rotator":
@@ -1330,8 +1676,9 @@ class Grid:
             0) / 90
 
         if "skidhi" in cell.name:
-            fx, fy, _, f = self.direct_step_forward(x, y, to_vec(cell.direction))
-            bx, by, _, b = self.direct_step_forward(x, y, to_vec((cell.direction + 2) % 4))
+            fx, fy, _, f_vars = self.direct_step_forward(x, y, to_vec(cell.direction))
+            bx, by, _, b_vars = self.direct_step_forward(x, y, to_vec((cell.direction + 2) % 4))
+            f, b = f_vars["end"], b_vars["end"]
 
             if "random" in cell.name:
                 r_f = random.choice([rotation, -rotation])
@@ -1370,6 +1717,12 @@ class Grid:
         if self[x, y] is None: return
         self.push_cell(x, y, to_vec(self[x, y].direction))
 
+    def DoSuperMover(self, x, y, cell):
+        self.DoMover(x, y, cell)
+
+    def DoSuperPuller(self, x, y, cell):
+        self.DoPuller(x, y, cell)
+
     def DoSuperGenerator(self, x, y, cell):
         to_generate = []
         cx, cy = x, y
@@ -1380,7 +1733,8 @@ class Grid:
         front_output = front_outputs.get(cell.name, 0)
         fx, fy, k, _ = self.step_forward(x, y, to_vec(cell.direction+front_output))
         while True:
-            cx, cy, j, cc = self.step_backward(cx, cy, to_vec(cell.direction))
+            cx, cy, j, back_vars = self.step_backward(cx, cy, to_vec(cell.direction))
+            cc = back_vars["end"]
             if cc is None:
                 break
             else:
@@ -1391,23 +1745,37 @@ class Grid:
                     cc = None
                     to_generate.append((Cell(0, "supergenstorage", v={"storing": cc}), side))
                 else:
-                    cc.name = gen_as(cc, side)
+                    cc = gen_as(cc, side)
+                    if cc is False: continue
                     to_generate.append((Cell((cc.direction+front_output)%4, "supergenstorage", v={"storing": cc}), side))
 
         for c, side in to_generate:
             self.push_cell(fx, fy, k, {"replacecell": c})
 
         cx, cy = x, y
-        i = 0
         while True:
-            cx, cy, _, cc = self.step_forward(cx, cy, to_vec(cell.direction+front_output))
+            cx, cy, _, end_vars = self.step_forward(cx, cy, to_vec(cell.direction+front_output))
+            cc = end_vars["end"]
             if cc is None:
                 break
-            elif cc.name != "supergenstorage":
-                break
-            else:
+            elif cc.name == "supergenstorage":
                 self[cx, cy] = self[cx, cy].storing_raw
-            i += 1
+
+    def DoConverter(self, x, y, cell):
+        bx, by, j, back_vars = self.step_backward(x, y, to_vec(cell.direction))
+        copy = back_vars["end"]
+        fx, fy, k, _ = self.step_forward(x, y, to_vec(cell.direction))
+        if copy is None: return
+        g_a = gen_as(copy, to_side(copy.direction, to_dir(j)))
+        if g_a is False: return
+        copy = g_a
+        if self[fx, fy] and not is_unbreakable(self[fx, fy], "convert", to_side(self[fx, fy].direction, to_dir(k))):
+            if copy is not None:
+                copy.oldcell = self[fx, fy]
+                copy.oldx = fx
+                copy.oldy = fy
+                copy.olddirection = copy.direction
+            self[fx, fy] = copy
 
     def DoGenerator(self, x, y, cell):
         front_outputs = {
@@ -1416,19 +1784,46 @@ class Grid:
         }
         if cell.name == "single cell generator" and cell.vars.get("full", False): return
         front_output = front_outputs.get(cell.name, 0)
-        bx, by, j, copy = self.step_backward(x, y, to_vec(cell.direction))
+        bx, by, j, back_vars = self.step_backward(x, y, to_vec(cell.direction))
+        copy = back_vars["end"]
         fx, fy, k, _ = self.step_forward(x, y, to_vec((cell.direction + front_output)))
         if copy is None: return
-        if copy.name == "ghost": return
-        copy.direction += front_output
+        if is_nonexistent(copy, to_side(copy.direction, to_dir(j))): return
         g_a = gen_as(copy, to_side(copy.direction, to_dir(j)))
-        if g_a is None:
-            copy = None
-        else:
-            copy.name = g_a
-        if self.push_cell(fx, fy, to_vec((cell.direction + front_output)), {"replacecell": copy}):
+        if g_a is False: return
+        if g_a is not None:
+            g_a.oldx = bx
+            g_a.oldy = by
+            g_a.direction += front_output
+        if self.push_cell(fx, fy, to_vec((cell.direction + front_output)), {"replacecell": g_a}):
             if cell.name == "single cell generator":
                 cell.vars["full"] = True
+
+    def DoCoinExtractor(self, x, y, cell):
+        bx, by, j, back_vars = self.step_backward(x, y, to_vec(cell.direction))
+        back = back_vars["end_raw"]
+        fx, fy, k, front_vars = self.step_forward(x, y, to_vec(cell.direction))
+        target = front_vars["end_raw"]
+        if back is None or target is None: return
+        if self.get_coin_price(back) is not None:
+            target.vars["coins"] += self.get_coin_price(back, target)
+            self[bx, by] = None
+        elif back.vars["coins"] >= cell.properties["Cost"]:
+            target.vars["coins"] += cell.properties["Cost"]
+            back.vars["coins"] -= cell.properties["Cost"]
+
+    def DoSuperCoinExtractor(self, x, y, cell):
+        bx, by, j, back_vars = self.step_backward(x, y, to_vec(cell.direction))
+        back = back_vars["end_raw"]
+        fx, fy, k, front_vars = self.step_forward(x, y, to_vec(cell.direction))
+        target = front_vars["end_raw"]
+        if back is None or target is None: return
+        if self.get_coin_price(back) is not None:
+            target.vars["coins"] += self.get_coin_price(back, target)
+            self[bx, by] = None
+        elif back.vars["coins"] > 0:
+            target.vars["coins"] += back.vars["coins"]
+            back.vars["coins"] = 0
 
     def DoRedirector(self, x, y, cell):
         neighbor_func = self.get_neighbors if cell.direction % 1 == 0 else self.get_diagonals
@@ -1478,6 +1873,11 @@ class Grid:
             for k, (i, j, c) in neighbor_func(x, y).items():
                 if not c: continue
                 self.disable_cell(i, j)
+        if cell.name == "ifier":
+            neighbor_func = self.get_neighbors if cell.direction % 1 == 0 else self.get_diagonals
+            for k, (i, j, c) in neighbor_func(x, y).items():
+                if not c: continue
+                self.ify_cell(i, j, cell.storing)
 
     def DoEnabler(self, x, y, cell):
         if cell.name == "enabler":
@@ -1486,9 +1886,21 @@ class Grid:
                 if not c: continue
                 self.enable_cell(i, j)
 
+    def DoLogicArrows(self, x, y, cell):
+        if cell.name == "la source":
+            neighbor_func = self.get_neighbors if cell.direction % 1 == 0 else self.get_diagonals
+            for k, (i, j, c) in neighbor_func(x, y).items():
+                if not c: continue
+                self.la_power_cell(i, j, to_side(c.direction, k))
+        if cell.name == "la arrow":
+            nx, ny, ndir, end_vars = self.step_forward(x, y, to_vec(cell.direction))
+            ncell = end_vars["end"]
+            if ncell and cell.vars.get("la_powered", False):
+                self.la_power_cell(nx, ny, to_side(ncell.direction, to_dir(ndir)))
+
     def do_basic_gear(self, gear_x, gear_y, rotation):
         neighbors = self.get_surrounding(gear_x, gear_y)
-        gears = ["cw gear", "ccw gear", "slow cw gear", "slow ccw gear", "fast cw gear", "fast ccw gear", "jam"]
+        gears = ["cw gear", "ccw gear", "slow cw gear", "slow ccw gear", "fast cw gear", "fast ccw gear", "gyro", "jam"]
 
         for i, (nx, ny, c) in neighbors.items():
             if c is None: continue
@@ -1522,5 +1934,56 @@ class Grid:
         if "fast" in cell.name:
             rotation *= 1.5
         self.do_basic_gear(x, y, rotation)
+
+
+def _sig(v):
+    if isinstance(v, Cell):
+        return (v.name, v._direction, _sig(v.properties), _sig(vars(v.effects)), _sig(v.vars), len(v.eaten))
+    if isinstance(v, dict):
+        return tuple(sorted(((str(k), _sig(x)) for k, x in v.items()), key=lambda kv: kv[0]))
+    if isinstance(v, (list, tuple)):
+        return tuple(_sig(i) for i in v)
+    if isinstance(v, Vector):
+        return ("vec", v.x, v.y)
+    return v
+
+
+class _Scratch(Grid):
+    def __init__(self, base):
+        self.base = base
+        self.width, self.height = base.width, base.height
+        self.ticks = base.ticks
+        self.eaten = []
+        self.positions = weakref.WeakKeyDictionary()
+        self.layer = {}
+
+    def __getitem__(self, key):
+        x, y = key
+        if x is None or y is None: return None
+        if not (0 <= x < self.width and 0 <= y < self.height): return None
+        pos = (x, y)
+        if pos in self.layer:
+            return self.layer[pos]
+        c = self.base.grid[x][y]
+        if c is not None:
+            n = c.copy()
+            n.vars = deepcopy(c.vars)
+            n.oldcell = c.oldcell
+            n.anim_center = c.anim_center
+            n.x, n.y = x, y
+            self.positions[n] = pos
+            c = n
+        self.layer[pos] = c
+        return c
+
+    def __setitem__(self, key, value):
+        x, y = key
+        if x is None or y is None: return
+        if not (0 <= x < self.width and 0 <= y < self.height): return
+        self.layer[(x, y)] = value
+        if value is not None:
+            self.positions[value] = (x, y)
+            value.x = x
+            value.y = y
 
 grid = Grid(grid_width, grid_height)

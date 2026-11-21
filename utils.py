@@ -1,16 +1,22 @@
-import functools, pygame
-import math
+import builtins
 import functools
+import math
+import pygame
 from random import choice
-allerrors = [item for item in dir(locals()['__builtins__']) if "Error" in item or "Exception" in item]
+
+allerrors = [
+    item for item in dir(builtins)
+    if ("Error" in item or "Exception" in item)
+    and not item.endswith("Warning")
+]
 
 def compose(*functions):
     return functools.reduce(lambda f, g: lambda x: f(g(x)), functions)
-  
-def raise_random_error():
-    global allerrors
-    raise choice(allerrors)
 
+def raise_random_error():
+    error_name = choice(allerrors)
+    error_class = getattr(builtins, error_name)
+    raise error_class("You got omega trash'd")
 
 def get_darkest_color(surface: pygame.Surface):
     with pygame.PixelArray(surface) as pixel_array:
@@ -25,9 +31,22 @@ def get_darkest_color(surface: pygame.Surface):
     sorted_colors = sorted(unique_colors, key=get_brightness)
     return sorted_colors[0]
 
+def get_item(lst, index, default=None):
+    try:
+        return lst[index]
+    except IndexError:
+        return default
+
+def replace(obj1, obj2):
+    if not isinstance(obj2, type(obj1)):
+        raise TypeError
+    vars(obj1).update(vars(obj2))
+
 def distance(a: tuple, b: tuple):
     ax, ay = a
     bx, by = b
+    if ax is None: ax = bx
+    if ay is None: ay = by
     return math.sqrt((bx-ax)**2 + (by-ay)**2)
 
 def to4(radians):
@@ -44,6 +63,9 @@ def lerp(a, b, t):
     diff = (b - a)
     return a + diff*t
 
+def ease_out(a, b, t):
+    return lerp(a, b, 1-(1-t)**2)
+
 def lerp_angle(a, b, t):
     if a is None: return b
     diff = (b - a) % 4
@@ -53,6 +75,8 @@ def lerp_angle(a, b, t):
 
 def polar_lerp(a: tuple, b: tuple, center: tuple, t):
     ra, rb = distance(a, center), distance(b, center)
+    if a == (None, None):
+        a = center
     ang_a = math.atan2(a[1] - center[1], a[0] - center[0])
     ang_b = math.atan2(b[1] - center[1], b[0] - center[0])
 

@@ -1,0 +1,10 @@
+haseul0885 (Dev): The soundtracks and most of the things in the game
+
+theguywithdiscrod_10438_22825 (Codev): Helped out with menu layout and Player Logic
+
+pichatnik: Helped with alot of textures, suggested Physical Trash, LA Cells, Brightness category, Coin, Anti Coin, Coin Diverger
+Jump Trash, Slow Mover (suggested as "crawler"), Bulk Trash/Enemy, Repulsor
+
+david3693_: Puller, Advancer, Slow & Fast Gears
+
+Please let me know if I missed someone!
