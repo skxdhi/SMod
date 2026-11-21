@@ -41,6 +41,7 @@ GameUI = ui.UI([])
 MainMenuUI = ui.UI([])
 AdjMenuUI = ui.UI([])
 SettingsMenuUI = ui.UI([])
+CreditsMenuUI = ui.UI([])
 
 adj_overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
 adj_overlay.fill((80,) * 4)
@@ -225,6 +226,13 @@ celltypes = {
     "resistance": {"desc": "Blocks all forces that dont have exactly 1 unit of force."},
     "conductance": {"desc": "Blocks all forces that have exactly 1 unit of force."},
     "ifier": {"desc": "Makes adjacent cells act like the cell the Ifier is storing."},
+    "fast puller": {"desc": "A Puller that moves forward twice, (NOT THE SAME AS THE LEAPER PULLER)."},
+    "super puller": {"desc": "A Puller that moves forward until it cannot anymore."},
+    "coin extractor": {"desc": "Takes an adjustable amount of coins from the cell behind it and gives it to the cell in the front."},
+    "super coin extractor": {"desc": "A Coin Extractor that takes coins all at once."},
+    "adjustable coin": {"desc": "A Coin that you can change the cost / value of."},
+    "walrus coin": {"desc": "An Adjustable Coin that sets the amount of coins instead of adding."},
+    "weak enemy": {"desc": "An Enemy that does not kill the cell it dies to."},
 }
 
 subcategories = {
@@ -233,10 +241,10 @@ subcategories = {
     "nudgers": ["nudger"],
     "other movers": ["inertia", "rotatable inertia"],
     "crushers": ["crusher"],
-    "pullers": ["puller", "slow puller", "leaper puller", "advancer"],
+    "pullers": ["puller", "slow puller", "fast puller", "super puller", "leaper puller", "advancer"],
     "pushables": ["push", "zero directional", "one directional", "two directional", "slide",
                   "three directional", "random push", "arrow", "helix", "lichen"],
-    "coins": ["coin", "anti coin", "chocolate coin"],
+    "coins": ["coin", "coin extractor", "super coin extractor", "coin diverger", "anti coin", "adjustable coin", "walrus coin", "chocolate coin"],
     "weights": ["weight", "anti weight", "bias", "gold", "lead", "nano weight", "anti nano weight"
                 , "resistance", "conductance", "bread", "adjustable weight", "a weight"],
     "rotators": ["cw 90 rotator", "cw 45 rotator", "cw 135 rotator", "ccw 90 rotator", "ccw 45 rotator",
@@ -354,6 +362,15 @@ adjustables = {
     "coin diverger": [
         make_adj_element("Integer", 1, "Cost"),
     ],
+    "coin extractor": [
+        make_adj_element("Natural", 1, "Cost"),
+    ],
+    "adjustable coin": [
+        make_adj_element("Integer", 5, "Value"),
+    ],
+    "walrus coin": [
+        make_adj_element("Integer", 5, "Value"),
+    ],
 }
 
 
@@ -387,6 +404,8 @@ def add_ui(element, tag=None, menu="Game"):
         AdjMenuUI.elements.append(element)
     if menu == "Settings":
         SettingsMenuUI.elements.append(element)
+    if menu == "Credits":
+        CreditsMenuUI.elements.append(element)
 
 
 def select_cell(b, c):
@@ -559,6 +578,25 @@ def draw_settings_infobox():
     btn_hovering = SettingsMenuUI.hover()
 
     if btn_hovering is not None and btn_hovering.tag[0] in ["Settings"]:
+        title_text = font.render(btn_hovering.tag[1], True, (255,) * 3)
+
+        w = max(title_text.get_width() + 20, 150)
+        h = max(title_text.get_height() + 15, 50)
+
+        mouse_y = min(mouse_y, screen.get_height() - h)
+        mouse_x = min(mouse_x, screen.get_width() - w)
+
+        box_rect = pygame.Rect(mouse_x, mouse_y, w, h)
+        pygame.draw.rect(screen, (80,) * 3, box_rect)
+        pygame.draw.rect(screen, (60,) * 3, box_rect, width=5)
+
+        screen.blit(title_text, (mouse_x + 10, mouse_y + 5))
+
+def draw_credits_infobox():
+    mouse_x, mouse_y = pygame.mouse.get_pos()
+    btn_hovering = CreditsMenuUI.hover()
+
+    if btn_hovering is not None and btn_hovering.tag[0] in ["Credits"]:
         title_text = font.render(btn_hovering.tag[1], True, (255,) * 3)
 
         w = max(title_text.get_width() + 20, 150)
@@ -895,7 +933,8 @@ def quit_app(b):
 
 
 def go_to_credits(b):
-    pass
+    global menu
+    menu = "Credits"
 
 def go_to_settings(b):
     global menu
@@ -925,6 +964,9 @@ add_ui(ui.Slider(
 ), ["Settings Control", f"slider_volume"], menu="Settings")
 set_back_button = ui.ImageButton(30, 30, 70, 70, pygame.transform.rotate(images["mover"], 180), compose(lambda x: play_sound("click"), quit_game), anchor="right")
 add_ui(set_back_button, ["Settings", "Back"], menu="Settings")
+
+cred_back_button = ui.ImageButton(30, 30, 70, 70, pygame.transform.rotate(images["mover"], 180), compose(lambda x: play_sound("click"), quit_game), anchor="right")
+add_ui(cred_back_button, ["Credits", "Back"], menu="Credits")
 
 def draw_text(x, y, direction, name, flags, text, outline=False, color=(255, 255, 255)):
     if flags.get("shadow"):
@@ -1011,6 +1053,9 @@ after_draw_funcs = {
     "coin diverger": draw_number("Cost"),
     "x generatable": draw_number("X"),
     "metageneratable": draw_number("Meta", offset_x=0.25, offset_y=0.25),
+    "adjustable coin": draw_number("Value"),
+    "coin extractor": draw_number("Cost"),
+    "walrus coin": draw_number("Value"),
 }
 
 
@@ -1275,7 +1320,9 @@ def do_camera():
 
     plrcalc = calc_player_cam()
     if plrcalc is not None and sim_running:
-        camera_x, camera_y = plrcalc
+        k = 1 - math.exp(-10 * dt)
+        camera_x += (plrcalc[0] - camera_x) * k
+        camera_y += (plrcalc[1] - camera_y) * k
 
 
 def tick():
@@ -1381,10 +1428,14 @@ def cool_bg_thing():
         screen.blit(j[0], (j[1], j[2] + math.sin(j[1] * 0.01) * 20))
 
 dt = 0
-amb = audio[random.choice(["Combine Like Terms","Cells And More Cells"])]
+amb = audio[random.choice(["Combine Like Terms","Cells And More Cells","Scrambled Cells"])]
 amb.play(loops=-1)
 
 fps = 0
+
+with open(resource_path("credits.txt"), "r", encoding="utf-8") as file:
+    credits_text = file.read()
+
 while running:
     key_buttons = pygame.key.get_pressed()
     if key_buttons[pygame.K_LEFT]:
@@ -1459,6 +1510,8 @@ while running:
                     MainMenuUI.click()
                 elif menu == "Settings":
                     SettingsMenuUI.click()
+                elif menu == "Credits":
+                    CreditsMenuUI.click()
     mouse_buttons = pygame.mouse.get_pressed()
     if menu == "Game" and adj_menu_name is None:
         if mouse_buttons == (False,) * 3:
@@ -1521,7 +1574,7 @@ while running:
         AdjMenuUI.draw()
         if adj_text_input:
             adj_text_input.update_animation(dt)
-        GameUI.update_animation(dt/2)
+        GameUI.update_animation(dt)
     if menu == "Main Menu":
         screen.fill((20,) * 3)
         cool_bg_thing()
@@ -1533,6 +1586,13 @@ while running:
         screen.fill((30,) * 3)
         SettingsMenuUI.draw()
         draw_settings_infobox()
+    if menu == "Credits":
+        screen.fill((30,) * 3)
+        for i, line in enumerate(credits_text.splitlines()):
+            line_txt = font.render(line, True, (255,) * 3)
+            screen.blit(line_txt, (10, 10+i*font.get_height()))
+        CreditsMenuUI.draw()
+        draw_credits_infobox()
     pygame.display.flip()
     dt = clock.tick(120) / 1000
     fps = 1 / dt
