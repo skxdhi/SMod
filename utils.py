@@ -4,19 +4,11 @@ import math
 import pygame
 from random import choice
 
-allerrors = [
-    item for item in dir(builtins)
-    if ("Error" in item or "Exception" in item)
-    and not item.endswith("Warning")
-]
-
 def compose(*functions):
     return functools.reduce(lambda f, g: lambda x: f(g(x)), functions)
 
 def raise_random_error():
-    error_name = choice(allerrors)
-    error_class = getattr(builtins, error_name)
-    raise error_class("You got omega trash'd")
+    raise RuntimeError("You got omega trash'd")
 
 def get_darkest_color(surface: pygame.Surface):
     with pygame.PixelArray(surface) as pixel_array:
