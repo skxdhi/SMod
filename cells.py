@@ -63,7 +63,7 @@ chunks = {
     "player": ["anti player", "pull player"],
     "puller": ["advancer", "leaper puller", "slow puller", "fast puller"],
     "inertia": ["rotatable inertia"],
-    "logic arrows": ["la source", "la arrow"],
+    "logic arrows": ["la source", "la arrow", "la blocker"],
     "disabler": ["ifier"],
 }
 
@@ -155,6 +155,9 @@ add_tag("isdestroyer", {
     "omega trash": basic_destroy,
     "physical trash": basic_destroy,
     "enemy": basic_destroy,
+    "weak enemy": basic_destroy,
+    "strong enemy": basic_destroy,
+    "balanced enemy": basic_destroy,
     "bulk enemy": basic_destroy,
     "bread": basic_destroy,
     "dextrophysical trash": basic_destroy,
@@ -334,6 +337,15 @@ class Cell:
                 else:
                     target[key] = value
 
+    @property
+    def empty(self):
+        return False
+
+class Empty(Cell):
+    @property
+    def empty(self):
+        return True
+
 def x_generatable(side, cell):
     if cell.properties["X"] > 0:
         copy = cell.copy()
@@ -366,10 +378,10 @@ add_tag("gen_as", {
     "ghost": False,
 })
 
-def make_subtick(chunk,condition=None,directional=False,postqueue=None,simul=False,reversed=False):
+def make_subtick(chunk,condition=None,directional=False,postqueue=None,simul=False,reversed=False,groups=None):
     if not condition:
         condition = lambda x,y,cell,direction: True
-    out = {"chunk":chunk,"directional":directional,"condition":condition,"simul":simul,"reversed":reversed}
+    out = {"chunk":chunk,"directional":directional,"condition":condition,"simul":simul,"reversed":reversed,"groups":groups}
     if postqueue is not None:
         out["postqueue"] = postqueue
     return out
@@ -381,7 +393,7 @@ subticks = [
     make_subtick("disabler"),
     make_subtick("electrocutor"),
     make_subtick("copper"),
-    make_subtick("logic arrows", simul=True),
+    make_subtick("logic arrows", simul=True, groups=[["la source", "la arrow"], ["la blocker"]]),
     make_subtick("converter",directional=True),
     make_subtick("mirror",directional=True),
     make_subtick("intaker",directional=True),
@@ -406,22 +418,29 @@ subticks = [
 ]
 
 class Grid:
-    def __init__(self, width, height):
+    def __init__(self, width, height, wrap=False):
         self.width = width
         self.height = height
         self.grid = [[None] * height for _ in range(width)]
         self.eaten = []
         self.ticks = 0
+        self.wrap = wrap
         self.positions = weakref.WeakKeyDictionary()
     def __getitem__(self, key):
         x, y = key
         if x is None or y is None: return None
+        if self.wrap:
+            x %= self.width
+            y %= self.height
         if 0 <= x < self.width and 0 <= y < self.height:
             return self.grid[x][y]
         return None
     def __setitem__(self, key, value):
         x, y = key
         if x is None or y is None: return None
+        if self.wrap:
+            x %= self.width
+            y %= self.height
         if not (0 <= x < self.width and 0 <= y < self.height): return
         self.grid[x][y] = value
         if value is not None:
@@ -429,17 +448,6 @@ class Grid:
             value.x = x
             value.y = y
 
-    def locate(self, cell, x, y):
-        if self[x, y] is cell:
-            return x, y
-        pos = self.positions.get(cell)
-        if pos is not None and self[pos] is cell:
-            return pos
-        for gx, col in enumerate(self.grid):
-            for gy, c in enumerate(col):
-                if c is cell:
-                    return gx, gy
-        return None
     def __iter__(self):
         for x in range(self.width):
             for y in range(self.height):
@@ -457,7 +465,8 @@ class Grid:
             if subtick["directional"]:
                 self.directional_subtick(subtick["chunk"], subtick["condition"], active_cells, reversed=subtick["reversed"])
             elif subtick["simul"]:
-                self.simul_subtick(subtick["chunk"], subtick["condition"], active_cells)
+                for names in subtick["groups"] or [None]:
+                    self.simul_subtick(subtick["chunk"], subtick["condition"], active_cells, names)
             else:
                 self.subtick(subtick["chunk"], subtick["condition"], active_cells, reversed=subtick["reversed"])
             if "postqueue" in subtick:
@@ -476,9 +485,9 @@ class Grid:
         for i in l:
             self.subtick(chunkid, condition, active_cells, i, reversed=reversed)
 
-    def simul_subtick(self, chunkid, condition, active_cells):
+    def simul_subtick(self, chunkid, condition, active_cells, names=None):
         name = "Do" + chunkid.title().replace(" ", "")
-        valid_names = {chunkid}.union(chunks.get(chunkid, []))
+        valid_names = set(names) if names else {chunkid}.union(chunks.get(chunkid, []))
 
         runners = []
         for x in range(self.width):
@@ -612,8 +621,16 @@ class Grid:
     def la_power_cell(self, x, y, side=None):
         if self[x, y] is not None:
             if side is not None and is_unbreakable(self[x, y], "la power", side): return
-            if "la " not in self[x, y].name: return
+            if self[x, y].name[0:3] != "la ": return
             self[x, y].vars["la_powered"] = True
+            self[x, y].vars["was_powered"] = True
+
+    def la_unpower_cell(self, x, y, side=None):
+        if self[x, y] is not None:
+            if side is not None and is_unbreakable(self[x, y], "la power", side): return
+            if self[x, y].name[0:3] != "la ": return
+            self[x, y].vars["la_powered"] = False
+            self[x, y].vars["was_powered"] = False
 
     def electrocute_cell(self, x, y, amount, side=None):
         if self[x, y] is not None:
@@ -1181,20 +1198,30 @@ class Grid:
                 self[x, y] = downcopy
                 self.push_cell(x, y, to_vec(down_dir), {"replacecell": None, "ignore_first": True})
 
-        if cell.name in ["enemy", "bulk enemy", "bread"]:
+        if cell.name in ["enemy", "weak enemy", "strong enemy", "balanced enemy", "bulk enemy", "bread"]:
             can_collide = True
             if cell.name == "bread":
                 if cell.properties["Numerator"]/cell.properties["Denominator"] > flags["force"]:
                     flags["force"] = 0
                     can_collide = False
             if can_collide:
-                self.eat_cell(x, y, x, y)
-                self[x, y] = None
-                if lastpos is not None:
-                    self.eat_cell(*lastpos, x, y)
-                    self[*lastpos] = None
+                if cell.name == "strong enemy":
+                    copy = self[x, y].copy()
+                    copy.name = "enemy"
+                    self[x, y] = copy
+                elif cell.name == "balanced enemy":
+                    copy = self[x, y].copy()
+                    copy.name = "weak enemy"
+                    self[x, y] = copy
                 else:
-                    flags["replacecell"] = None
+                    self.eat_cell(x, y, x, y)
+                    self[x, y] = None
+                if cell.name != "weak enemy":
+                    if lastpos is not None:
+                        self.eat_cell(*lastpos, x, y)
+                        self[*lastpos] = None
+                    else:
+                        flags["replacecell"] = None
                 if cell.name == "bulk enemy":
                     success = False
                 else:
@@ -1897,6 +1924,11 @@ class Grid:
             ncell = end_vars["end"]
             if ncell and cell.vars.get("la_powered", False):
                 self.la_power_cell(nx, ny, to_side(ncell.direction, to_dir(ndir)))
+        if cell.name == "la blocker":
+            nx, ny, ndir, end_vars = self.step_forward(x, y, to_vec(cell.direction))
+            ncell = end_vars["end"]
+            if ncell and cell.vars.get("la_powered", False):
+                self.la_unpower_cell(nx, ny, to_side(ncell.direction, to_dir(ndir)))
 
     def do_basic_gear(self, gear_x, gear_y, rotation):
         neighbors = self.get_surrounding(gear_x, gear_y)
@@ -1986,4 +2018,4 @@ class _Scratch(Grid):
             value.x = x
             value.y = y
 
-grid = Grid(grid_width, grid_height)
+grid = Grid(grid_width, grid_height, wrap=False)

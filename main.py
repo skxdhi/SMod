@@ -24,9 +24,9 @@ def resource_path(relative_path):
 pygame.init()
 pygame.mixer.init()
 monitor_info = pygame.display.Info()
-SCREEN_WIDTH = monitor_info.current_w
-SCREEN_HEIGHT = monitor_info.current_h
-screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SCALED | pygame.FULLSCREEN)
+SCREEN_WIDTH = 800
+SCREEN_HEIGHT = 600
+screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.RESIZABLE)
 running = True
 pygame.font.init()
 font = pygame.font.Font(resource_path("Jersey10-Regular.ttf"), 32)
@@ -56,7 +56,7 @@ Cell = cells.Cell
 pygame.display.set_caption("Cell Machine SMod")
 pygame.display.set_icon(pygame.image.load(resource_path("icon.ico")).convert_alpha())
 title_logo = pygame.image.load(resource_path("SMod_Logo.png")).convert_alpha()
-title_logo = pygame.transform.scale(title_logo, (600, 600 * title_logo.get_height() / title_logo.get_width()))
+title_logo = pygame.transform.scale(title_logo, (400, 400 * title_logo.get_height() / title_logo.get_width()))
 clock = pygame.time.Clock()
 
 cell_size = 32
@@ -221,7 +221,7 @@ celltypes = {
     "metageneratable": {"desc": "Like an X Generatable, but index 0 is the cell inside of it instead."},
     "forker": {"desc": "When cells enter the back, it duplicates it into two perpendicular directions."},
     "la source": {"desc": "Emits a logic signal to all neighboring cells."},
-    "la arrow": {"desc": "Emits a logic signal to all neighboring cells."},
+    "la arrow": {"desc": "Emits a logic signal to the cell it points at when this cell is powered."},
     "spooner": {"desc": "When cells enter on its two indicated sides, it outputs the first one that came in (handled at the subtick level)."},
     "resistance": {"desc": "Blocks all forces that dont have exactly 1 unit of force."},
     "conductance": {"desc": "Blocks all forces that have exactly 1 unit of force."},
@@ -233,6 +233,11 @@ celltypes = {
     "adjustable coin": {"desc": "A Coin that you can change the cost / value of."},
     "walrus coin": {"desc": "An Adjustable Coin that sets the amount of coins instead of adding."},
     "weak enemy": {"desc": "An Enemy that does not kill the cell it dies to."},
+    "la blocker": {"desc": "Removes logic signal from the cell it points to if this cell is powered."},
+    "eraser": {"desc": "Eraser tool."},
+    "strong enemy": {"desc": "Turns into a normal enemy when it dies."},
+    "balanced enemy": {"desc": "Turns into a weak enemy when it dies."},
+    "picker": {"desc": "Picker tool."},
 }
 
 subcategories = {
@@ -259,7 +264,7 @@ subcategories = {
     "generatables": ["ungeneratable", "monogeneratable", "x generatable", "metageneratable", "spirit"],
     "walls": ["wall", "ghost"],
     "trashes": ["trash", "jump trash", "attack trash", "physical trash", "dextrophysical trash", "levophysical trash", "squish trash", "bulk trash", "omega trash"],
-    "enemies": ["enemy", "squish enemy", "bulk enemy", "bread"],
+    "enemies": ["enemy", "weak enemy", "strong enemy", "balanced enemy", "squish enemy", "bulk enemy", "bread"],
     "divergers": ["curve diverger", "acute curve diverger", "obtuse curve diverger", "bicurve diverger",
                   "straight diverger", "bistraight diverger", "diode diverger"],
     "forkers": ["forker"],
@@ -278,10 +283,13 @@ subcategories = {
     "other": ["texter"],
     "brightness": ["light", "dark", "night"],
     "converters": ["converter"],
-    "logic arrows": ["la source", "la arrow"],
+    "logic arrows": ["la source", "la arrow", "la blocker"],
+
+    "basic tools": ["eraser", "picker"]
 }
 
 categories = {
+    "Tools": [subcategories["basic tools"], images["eraser"]],
     "Base": [subcategories["pushables"], subcategories["weights"], subcategories["walls"], images["push"]],
     "Movers": [subcategories["movers"], subcategories["pullers"], subcategories["crushers"], subcategories["nudgers"], subcategories["players"], subcategories["other movers"], images["mover"]],
     "Recreation": [subcategories["generators"], subcategories["super generators"], subcategories["converters"], subcategories["generatables"],
@@ -298,6 +306,12 @@ categories = {
               images["void"]],
 }
 
+def holding_tool():
+    for subcategory in categories["Tools"]:
+        if not isinstance(subcategory, list): continue
+        if selected_cell["name"] in subcategory:
+            return True
+    return False
 
 def make_adj_element(type, current_val, name=None):
     return {"name": name or type, "type": type, "current_val": current_val}
@@ -372,6 +386,8 @@ adjustables = {
         make_adj_element("Integer", 5, "Value"),
     ],
 }
+
+default_adjustables = dict(adjustables)
 
 
 def draw_rect_alpha(surface, color, rect):
@@ -790,7 +806,7 @@ def rebuild_adj_menu():
         add_ui(bool_button, ["Adj Control", "button"], menu="Adj")
 
     if t == "Color":
-        slider_w, slider_h, gap = 260, 36, 12
+        slider_w, slider_h, gap = 150, 36, 12
         channels = (("R", (200, 60, 60)), ("G", (60, 180, 60)), ("B", (70, 110, 220)))
 
         def make_channel_setter(index):
@@ -941,27 +957,28 @@ def go_to_settings(b):
     menu = "Settings"
 
 
-play_button = ui.ImageButton(500, 240, 150, 150, images["mover"], compose(lambda x: play_sound("click"), go_to_game),
-                             anchor="left-bottom")
+play_button = ui.ImageButton(-160, 190, 120, 120, images["mover"], compose(lambda x: play_sound("click"), go_to_game),
+                             anchor="center-bottom")
 add_ui(play_button, ["Main Menu", "Play"], menu="Main Menu")
-quit_button = ui.ImageButton(500, 40, 150, 150, images["trash"], quit_app, anchor="right-bottom")
+quit_button = ui.ImageButton(160, 40, 120, 120, images["trash"], quit_app, anchor="center-bottom")
 add_ui(quit_button, ["Main Menu", "Quit"], menu="Main Menu")
-credits_button = ui.ImageButton(500, 40, 150, 150, images["push"],
-                                compose(lambda x: play_sound("click"), go_to_credits), anchor="left-bottom")
+credits_button = ui.ImageButton(-160, 40, 120, 120, images["push"],
+                                compose(lambda x: play_sound("click"), go_to_credits), anchor="center-bottom")
 add_ui(credits_button, ["Main Menu", "Credits"], menu="Main Menu")
-settings_button = ui.ImageButton(500, 240, 150, 150, images["transmitter"],
-                                compose(lambda x: play_sound("click"), go_to_settings), anchor="right-bottom")
+settings_button = ui.ImageButton(160, 190, 120, 120, images["transmitter"],
+                                compose(lambda x: play_sound("click"), go_to_settings), anchor="center-bottom")
 add_ui(settings_button, ["Main Menu", "Settings"], menu="Main Menu")
 
 #######################################
 
 add_ui(ui.Slider(
-    100, 50, 800, 50,
+    50, 50, 500, 50,
     min_val=0, max_val=100, value=int(100),
     on_change=lambda v: amb.set_volume(v/100),
-    font=font, label="Volume", label_width=30, value_width=60,
+    font=font, label="Music Volume", label_width=160, value_width=60,
     fill_color=(40,)*3,
 ), ["Settings Control", f"slider_volume"], menu="Settings")
+
 set_back_button = ui.ImageButton(30, 30, 70, 70, pygame.transform.rotate(images["mover"], 180), compose(lambda x: play_sound("click"), quit_game), anchor="right")
 add_ui(set_back_button, ["Settings", "Back"], menu="Settings")
 
@@ -977,7 +994,7 @@ def draw_text(x, y, direction, name, flags, text, outline=False, color=(255, 255
     f["nearest"] = True
     scale = cell_size / 32 * f.get("size", 1)
     if outline:
-        outline = (outline.r, outline.g, outline.b)
+        if isinstance(outline, pygame.Color): outline = (outline.r, outline.g, outline.b)
         f["source"] = get_text_surf(text, outline, scale)
         px = max(1, round(cell_size / 32))
         step = px / cell_size
@@ -1041,6 +1058,7 @@ draw_funcs = {
     "metageneratable": draw_storage,
     "la arrow": draw_la,
     "ifier": draw_storage,
+    "la blocker": draw_la,
 }
 
 after_draw_funcs = {
@@ -1296,6 +1314,10 @@ def reset_cells():
                 if effect not in perm_effects:
                     setattr(cell.effects, effect, False)
 
+            if cell.name[0:3] == "la ":
+                if not cell.vars.get("was_powered"): cell.vars["la_powered"] = False
+                cell.vars["was_powered"] = False
+
             if cell.vars.get("ify", None) is not None:
                 cell.vars["ify"].oldx = grid[x, y].oldx
                 cell.vars["ify"].oldy = grid[x, y].oldy
@@ -1427,6 +1449,23 @@ def cool_bg_thing():
     for j in coolbgthings:
         screen.blit(j[0], (j[1], j[2] + math.sin(j[1] * 0.01) * 20))
 
+def pick_cell(x, y):
+    global selected_cell
+    if not (0 <= x < grid.width and 0 <= y < grid.height):
+        return False
+    cell = grid[x, y]
+    if cell is None or getattr(cell, "empty", False):
+        return False
+    if cell.name == "disablestorage" and cell.storing_raw is not None:
+        cell = cell.storing_raw
+    if cell.name not in celltypes:
+        return False
+    selected_cell = {"name": cell.name, "direction": cell.direction}
+    for elem in adjustables.get(cell.name, []):
+        if elem["name"] in cell.properties:
+            elem["current_val"] = deepcopy(cell.properties[elem["name"]])
+    return True
+
 dt = 0
 amb = audio[random.choice(["Combine Like Terms","Cells And More Cells","Scrambled Cells"])]
 amb.play(loops=-1)
@@ -1484,6 +1523,11 @@ while running:
                     toggle_sim(sim_button)
                 if event.key == pygame.K_f:
                     step_sim(step_button)
+                if event.key == pygame.K_c:
+                    for y, (sub, cellnames) in enumerate(subcategories.items()):
+                        for x, cell in enumerate(cellnames):
+                            place_cell(x + 2, y + 2, 0, cell,
+                                       properties=adjustables.get(cell, {}))
         if event.type == pygame.MOUSEBUTTONDOWN:
             if event.button in (4, 5):
                 if menu == "Game":
@@ -1517,16 +1561,23 @@ while running:
         if mouse_buttons == (False,) * 3:
             place_type = "place"
         if mouse_buttons[0] and not GameUI.hover():
-            if 0 <= mx < grid.width and 0 <= my < grid.height:
-                if grid[mx, my] is not None and cells.get_tag(grid[mx, my].name, "can_store") and place_type == "store":
-                    grid[mx, my].storing = Cell(selected_cell["direction"], selected_cell["name"], properties=adjustables.get(selected_cell["name"], {}))
-                elif place_type == "place":
-                    place_cell(mx, my, selected_cell["direction"], selected_cell["name"],
-                               properties=adjustables.get(selected_cell["name"], {}))
-                    for x in range(grid.width):
-                        for y in range(grid.height):
-                            if x == 0 or y == 0 or x == grid.width - 1 or y == grid.height - 1:
-                                grid[x, y] = Cell(0, "ghost")
+            if holding_tool():
+                if selected_cell["name"] == "eraser":
+                    grid[mx, my] = None
+                elif selected_cell["name"] == "picker":
+                    if pick_cell(mx, my):
+                        place_type = "picked"
+            else:
+                if 0 <= mx < grid.width and 0 <= my < grid.height:
+                    if grid[mx, my] is not None and cells.get_tag(grid[mx, my].name, "can_store") and place_type == "store":
+                        grid[mx, my].storing = Cell(selected_cell["direction"], selected_cell["name"], properties=adjustables.get(selected_cell["name"], {}))
+                    elif place_type == "place":
+                        place_cell(mx, my, selected_cell["direction"], selected_cell["name"],
+                                   properties=adjustables.get(selected_cell["name"], {}))
+                        for x in range(grid.width):
+                            for y in range(grid.height):
+                                if x == 0 or y == 0 or x == grid.width - 1 or y == grid.height - 1:
+                                    grid[x, y] = Cell(0, "ghost")
         if mouse_buttons[2] and not GameUI.hover():
             if 0 <= mx < grid.width and 0 <= my < grid.height:
                 if grid[mx, my] is not None and cells.get_tag(grid[mx, my].name,
