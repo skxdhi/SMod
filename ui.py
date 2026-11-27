@@ -287,9 +287,6 @@ class TextInput(ButtonTemplate):
 
 
 class Slider(ButtonTemplate):
-    """Horizontal slider. Click the track (or the handle) and drag to change the value.
-    Layout, left to right: label | track | value text.
-    on_change(value) is called every time the value changes."""
     def __init__(self, x, y, width, height, min_val=0, max_val=100, value=None, on_change=None,
                  font=None, label="", step=1, anchor="top-left", enabled=True, anim_start_pos=None,
                  label_width=0, value_width=0,
